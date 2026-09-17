@@ -1,0 +1,20 @@
+# Sample materials for the viewer color OBJ
+newmtl red
+Kd 0.86 0.18 0.14
+Ks 0.15 0.15 0.15
+Ns 48
+
+newmtl green
+Kd 0.18 0.68 0.28
+Ks 0.15 0.15 0.15
+Ns 48
+
+newmtl blue
+Kd 0.16 0.38 0.86
+Ks 0.15 0.15 0.15
+Ns 48
+
+newmtl yellow
+Kd 0.92 0.78 0.16
+Ks 0.15 0.15 0.15
+Ns 32

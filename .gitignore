@@ -1,0 +1,48 @@
+﻿# --- Godot ---
+.godot/
+.nomedia
+.import/
+export.cfg
+export_credentials.cfg
+*.translation
+.mono/
+data_*/
+mono_crash.*.json
+
+# --- Godot binaries (never commit) ---
+Godot*.exe
+Godot*.console.exe
+Godot_*.zip
+godot*.exe
+
+# --- Local mesh vaults ---
+library/**
+!library/README.md
+!library/.gitkeep
+
+# --- OS / junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.log
+*.bak
+*.bak-*
+*~
+
+# --- Local tooling noise ---
+export/
+build/
+tools/verify_out.txt
+tools/__pycache__/
+**/__pycache__/
+*.pyc
+
+# --- IDE ---
+.vs/
+.vscode/
+*.user
+*.suo
+
+tools/
+

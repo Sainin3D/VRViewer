@@ -1,0 +1,35 @@
+# VR Model Viewer sample cube with per-face MTL colours
+mtllib color_cube.mtl
+o color_cube
+v -0.5 -0.5 -0.5
+v 0.5 -0.5 -0.5
+v 0.5 0.5 -0.5
+v -0.5 0.5 -0.5
+v -0.5 -0.5 0.5
+v 0.5 -0.5 0.5
+v 0.5 0.5 0.5
+v -0.5 0.5 0.5
+vn 0 0 -1
+vn 0 0 1
+vn 0 -1 0
+vn 0 1 0
+vn -1 0 0
+vn 1 0 0
+usemtl red
+f 1//1 4//1 3//1
+f 1//1 3//1 2//1
+usemtl green
+f 5//2 6//2 7//2
+f 5//2 7//2 8//2
+usemtl blue
+f 1//3 2//3 6//3
+f 1//3 6//3 5//3
+usemtl yellow
+f 4//4 8//4 7//4
+f 4//4 7//4 3//4
+usemtl red
+f 1//5 5//5 8//5
+f 1//5 8//5 4//5
+usemtl blue
+f 2//6 3//6 7//6
+f 2//6 7//6 6//6
