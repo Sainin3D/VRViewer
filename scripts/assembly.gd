@@ -234,7 +234,19 @@ func view_scale() -> float:
 func set_size_percent(percent: float) -> void:
 	size_percent = clampf(percent, 10.0, 400.0)
 	var s := rest_scale * (size_percent / 100.0)
-	scale = Vector3.ONE * maxf(s, 0.0001)
+	var new_s := maxf(s, 0.0001)
+	if parts.is_empty():
+		scale = Vector3.ONE * new_s
+		changed.emit()
+		return
+	# Scale around the current on-floor center so models grow/shrink in place
+	# (scaling the node alone pivots from the assembly origin and slides them).
+	var before := world_aabb()
+	var pivot := Vector3(before.get_center().x, before.position.y, before.get_center().z)
+	scale = Vector3.ONE * new_s
+	var after := world_aabb()
+	var pivot_after := Vector3(after.get_center().x, after.position.y, after.get_center().z)
+	global_position += pivot - pivot_after
 	_snap_to_floor()
 	if parts.size() == 1:
 		SceneStore.set_file_percent(part_paths[0], size_percent)
@@ -242,10 +254,17 @@ func set_size_percent(percent: float) -> void:
 
 
 func return_to_origin() -> void:
+	## Restore assembly spawn pose only (does not move the XR player / camera).
 	var kept := size_percent
 	position = spawn_transform.origin
 	rotation = spawn_transform.basis.get_euler()
-	set_size_percent(kept)
+	# Apply size without the in-place pivot dance relative to a moved pose:
+	# spawn was captured at rest_scale / 100%, so set scale then snap floor.
+	size_percent = kept
+	var s := rest_scale * (size_percent / 100.0)
+	scale = Vector3.ONE * maxf(s, 0.0001)
+	_snap_to_floor()
+	changed.emit()
 
 
 func set_model_tint(color: Color) -> void:

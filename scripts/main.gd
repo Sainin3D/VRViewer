@@ -118,8 +118,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_set_vr(not _xr.xr_active)
 				get_viewport().set_input_as_handled()
 			KEY_R:
-				_assembly.return_to_origin()
-				_camera.frame_aabb(_assembly.world_aabb())
+				_on_return_to_origin()
 				get_viewport().set_input_as_handled()
 
 
@@ -486,7 +485,7 @@ func _build_modify_column() -> VBoxContainer:
 	_scale_slider.value_changed.connect(_on_scale_slider)
 	scale_row.add_child(_scale_slider)
 	col.add_child(scale_row)
-	col.add_child(_btn("Return to origin", func(): _assembly.return_to_origin(); _camera.frame_aabb(_assembly.world_aabb())))
+	col.add_child(_btn("Return to origin", _on_return_to_origin))
 
 	col.add_child(_sep())
 	col.add_child(_build_color_editor())
@@ -821,36 +820,46 @@ func _apply_ui_mode(wide: bool) -> void:
 	if _desktop_host:
 		_desktop_host.offset_right = PANEL_WIDTH
 		_desktop_host.visible = not wide
-	var btn_h := 52 if wide else 44
-	# Desktop: smaller list mins + scroll so Add pack stays on-screen.
-	var list_h := 420 if wide else 180
-	var preview_h := 240 if wide else 120
+	var btn_h := 88 if wide else 44
+	var font_vr := 24 if wide else 16
+	# VR: larger file list; keep preview modest so sticky Add pack stays visible.
+	var list_h := 560 if wide else 180
+	var preview_h := 200 if wide else 120
 	if _file_list:
 		_file_list.custom_minimum_size = Vector2(0, list_h)
-		_file_list.add_theme_font_size_override("font_size", 18 if wide else 16)
+		_file_list.add_theme_font_size_override("font_size", font_vr)
 	if _parts_list:
-		_parts_list.custom_minimum_size = Vector2(0, 260 if wide else 200)
-		_parts_list.add_theme_font_size_override("font_size", 18 if wide else 16)
+		_parts_list.custom_minimum_size = Vector2(0, 360 if wide else 200)
+		_parts_list.add_theme_font_size_override("font_size", font_vr)
 	if _scene_list:
-		_scene_list.custom_minimum_size = Vector2(0, 220 if wide else 160)
+		_scene_list.custom_minimum_size = Vector2(0, 320 if wide else 160)
 	if _splat_list:
-		_splat_list.custom_minimum_size = Vector2(0, 180 if wide else 140)
+		_splat_list.custom_minimum_size = Vector2(0, 240 if wide else 140)
 	if _pack_preview:
 		_pack_preview.custom_minimum_size = Vector2(0, preview_h)
 	if _tag_filter:
-		_tag_filter.custom_minimum_size = Vector2(0, 48 if wide else 0)
-		_tag_filter.add_theme_font_size_override("font_size", 18 if wide else 16)
+		_tag_filter.custom_minimum_size = Vector2(0, 56 if wide else 0)
+		_tag_filter.add_theme_font_size_override("font_size", font_vr)
 	if _btn_add_pack:
 		_btn_add_pack.custom_minimum_size = Vector2(0, btn_h)
-		_btn_add_pack.add_theme_font_size_override("font_size", 18 if wide else 16)
+		_btn_add_pack.add_theme_font_size_override("font_size", font_vr)
+	_apply_file_list_columns()
+	if wide:
+		# Roughly double Modify / Scene / World hit targets; Files uses the sizes above.
+		_bulk_vr_chrome(_col_modify, 88.0, 24, 56.0)
+		_bulk_vr_chrome(_col_scene, 88.0, 24, 56.0)
+		_bulk_vr_chrome(_col_world, 88.0, 24, 56.0)
+		if _files_load_row:
+			_bulk_vr_chrome(_files_load_row, 88.0, 24, 56.0)
+		if _tabs:
+			_tabs.add_theme_font_size_override("font_size", 26)
 	if _btn_recenter_board:
 		_btn_recenter_board.visible = wide
 	# Desktop tabs scroll; VR board is sized to fit so keep scroll off when possible.
 	for sc in _tab_scrolls:
 		if sc is ScrollContainer:
-			sc.vertical_scroll_mode = (
-				ScrollContainer.SCROLL_MODE_DISABLED if wide else ScrollContainer.SCROLL_MODE_AUTO
-			)
+			# Files can stay tight; other tabs may need a little scroll after control upscale.
+			sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	if _files_scroll:
 		_files_scroll.vertical_scroll_mode = (
 			ScrollContainer.SCROLL_MODE_DISABLED if wide else ScrollContainer.SCROLL_MODE_AUTO
@@ -1011,6 +1020,64 @@ func _on_delete_part() -> void:
 	_status.text = "Deleted one part."
 
 
+
+func _on_return_to_origin() -> void:
+	_assembly.return_to_origin()
+	# Desktop only: reframe the orbit camera. In VR, leave the player where they are.
+	if _xr == null or not _xr.xr_active:
+		_camera.frame_aabb(_assembly.world_aabb())
+	_status.text = "Models returned to spawn origin."
+
+
+func _apply_file_list_columns() -> void:
+	if _file_list == null:
+		return
+	if _library_mode:
+		_file_list.set_column_title(0, "Pack")
+		_file_list.set_column_title(1, "Tags")
+		_file_list.set_column_expand(0, true)
+		_file_list.set_column_expand(1, true)
+		_file_list.set_column_clip_content(0, true)
+		_file_list.set_column_clip_content(1, true)
+		# Tags at least ~half the sheet.
+		var half := 420
+		if _ui_viewport:
+			half = maxi(int(float(_ui_viewport.size.x) * 0.48), 320)
+		_file_list.set_column_custom_minimum_width(0, half)
+		_file_list.set_column_custom_minimum_width(1, half)
+	else:
+		_file_list.set_column_title(0, "Name")
+		_file_list.set_column_title(1, "Ext")
+		_file_list.set_column_expand(0, true)
+		_file_list.set_column_expand(1, false)
+		_file_list.set_column_clip_content(0, true)
+		_file_list.set_column_custom_minimum_width(1, 64)
+
+
+func _bulk_vr_chrome(root: Control, btn_h: float, font: int, slider_h: float) -> void:
+	if root == null:
+		return
+	for b in root.find_children("*", "Button", true, false):
+		(b as Button).custom_minimum_size = Vector2(0, btn_h)
+		(b as Button).add_theme_font_size_override("font_size", font)
+	for c in root.find_children("*", "CheckBox", true, false):
+		(c as CheckBox).custom_minimum_size = Vector2(0, btn_h)
+		(c as CheckBox).add_theme_font_size_override("font_size", font)
+	for s in root.find_children("*", "HSlider", true, false):
+		(s as HSlider).custom_minimum_size = Vector2(0, slider_h)
+	for e in root.find_children("*", "LineEdit", true, false):
+		(e as LineEdit).custom_minimum_size = Vector2(0, btn_h)
+		(e as LineEdit).add_theme_font_size_override("font_size", font)
+	for o in root.find_children("*", "OptionButton", true, false):
+		(o as OptionButton).custom_minimum_size = Vector2(0, btn_h)
+		(o as OptionButton).add_theme_font_size_override("font_size", font)
+	for lab in root.find_children("*", "Label", true, false):
+		(lab as Label).add_theme_font_size_override("font_size", max(font - 2, 16))
+	for lst in root.find_children("*", "ItemList", true, false):
+		(lst as ItemList).add_theme_font_size_override("font_size", font)
+		(lst as ItemList).custom_minimum_size = Vector2(0, max((lst as ItemList).custom_minimum_size.y, 280.0))
+
+
 func _focus_library_filter() -> void:
 	if _tag_filter == null or not _tag_filter.visible:
 		return
@@ -1163,17 +1230,14 @@ func _set_view_mode(library: bool) -> void:
 		if _folder_edit:
 			_folder_edit.text = lib_path
 			_folder_edit.editable = false
-		_file_list.set_column_title(0, "Pack")
-		_file_list.set_column_title(1, "Tags")
 	else:
 		if _folder_edit:
 			_folder_edit.editable = true
-		_file_list.set_column_title(0, "Name")
-		_file_list.set_column_title(1, "Ext")
 		if _pack_preview:
 			_pack_preview.texture = null
 		if _pack_meta_label:
 			_pack_meta_label.text = ""
+	_apply_file_list_columns()
 	_save_settings()
 	_scan_folder()
 
@@ -1962,7 +2026,7 @@ func _run_regression() -> int:
 		fails.append("Add selected button missing")
 	if not "Library (model-tags)" in names:
 		fails.append("Library (model-tags) toggle missing")
-	var issa_root := "res://samples"  # optional local dogfood pack path
+	var issa_root := "res://samples"
 	if DirAccess.dir_exists_absolute(issa_root):
 		var adapter := ModelTagsLibrary.new()
 		adapter.set_root(issa_root)
