@@ -14,6 +14,9 @@ const UNIT_SCALE := {
 
 var origin_root: Node3D
 var parts: Array[Node3D] = []
+var link_groups: Dictionary = {}  # gid -> { name, root: Node3D, members: Array }
+var part_link: Dictionary = {}  # part instance_id -> { gid, linked: bool }
+var _next_link_id := 1
 var part_paths: PackedStringArray = []
 var keep_shared_origin := false
 var model_tint := Color(0.92, 0.92, 0.93, 1.0)
@@ -52,6 +55,8 @@ func clear() -> void:
 	parts.clear()
 	part_paths.clear()
 	selected_part = null
+	link_groups.clear()
+	part_link.clear()
 	last_triangles = 0
 	file_aabb = AABB()
 	last_message = "Cleared."
@@ -585,3 +590,173 @@ static func _format_int(n: int) -> String:
 		out = s[i] + out
 		count += 1
 	return out
+
+
+func create_link_group(display_name: String, member_parts: Array, linked := true) -> String:
+	## Wrap members under a group root (preserves global transforms). Pack loads use this.
+	var members: Array[Node3D] = []
+	for p in member_parts:
+		if p is Node3D and is_instance_valid(p) and parts.has(p):
+			members.append(p)
+	if members.is_empty():
+		return ""
+	var gid := "g%d" % _next_link_id
+	_next_link_id += 1
+	var root := Node3D.new()
+	root.name = "LinkGroup_%s" % gid
+	origin_root.add_child(root)
+	for part in members:
+		_detach_from_any_group(part)
+		var gt := part.global_transform
+		var parent := part.get_parent()
+		if parent:
+			parent.remove_child(part)
+		root.add_child(part)
+		part.global_transform = gt
+		part_link[part.get_instance_id()] = {"gid": gid, "linked": linked}
+	link_groups[gid] = {"name": display_name, "root": root, "members": members.duplicate()}
+	changed.emit()
+	return gid
+
+
+func _detach_from_any_group(part: Node3D) -> void:
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return
+	var info: Dictionary = part_link[id]
+	var gid := str(info.get("gid", ""))
+	if not link_groups.has(gid):
+		part_link.erase(id)
+		return
+	var g: Dictionary = link_groups[gid]
+	var members: Array = g.get("members", [])
+	members.erase(part)
+	g["members"] = members
+	if members.is_empty():
+		var root: Node3D = g.get("root")
+		if root and is_instance_valid(root) and root.get_child_count() == 0:
+			root.queue_free()
+		link_groups.erase(gid)
+	part_link.erase(id)
+
+
+func set_part_linked(part: Node3D, linked: bool) -> void:
+	if part == null or not is_instance_valid(part):
+		return
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return
+	var info: Dictionary = part_link[id]
+	var gid := str(info.get("gid", ""))
+	if not link_groups.has(gid):
+		return
+	var g: Dictionary = link_groups[gid]
+	var root: Node3D = g.get("root")
+	if root == null or not is_instance_valid(root):
+		return
+	var gt := part.global_transform
+	if linked:
+		# Re-link keeps current pose/offset.
+		if part.get_parent() != root:
+			var parent := part.get_parent()
+			if parent:
+				parent.remove_child(part)
+			root.add_child(part)
+			part.global_transform = gt
+		info["linked"] = true
+	else:
+		# Unlink: keep world pose under origin_root.
+		if part.get_parent() != origin_root:
+			var parent2 := part.get_parent()
+			if parent2:
+				parent2.remove_child(part)
+			origin_root.add_child(part)
+			part.global_transform = gt
+		info["linked"] = false
+	part_link[id] = info
+	changed.emit()
+
+
+func is_part_linked(part: Node3D) -> bool:
+	if part == null:
+		return false
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return false
+	return bool(part_link[id].get("linked", false))
+
+
+func get_part_group_id(part: Node3D) -> String:
+	if part == null:
+		return ""
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return ""
+	return str(part_link[id].get("gid", ""))
+
+
+func get_part_group_name(part: Node3D) -> String:
+	var gid := get_part_group_id(part)
+	if gid == "" or not link_groups.has(gid):
+		return ""
+	return str(link_groups[gid].get("name", gid))
+
+
+func grab_root_for(part: Node3D) -> Node3D:
+	## VR grab target: group root if linked, else the part.
+	if part == null or not is_instance_valid(part):
+		return null
+	if not is_part_linked(part):
+		return part
+	var gid := get_part_group_id(part)
+	if gid == "" or not link_groups.has(gid):
+		return part
+	var root: Node3D = link_groups[gid].get("root")
+	if root and is_instance_valid(root):
+		return root
+	return part
+
+
+func remove_part(part: Node3D) -> bool:
+	## Delete one part (not the whole group).
+	if part == null or not is_instance_valid(part):
+		return false
+	var idx := parts.find(part)
+	if idx < 0:
+		return false
+	_detach_from_any_group(part)
+	if selected_part == part:
+		selected_part = null
+	parts.remove_at(idx)
+	if idx < part_paths.size():
+		part_paths.remove_at(idx)
+	part.queue_free()
+	changed.emit()
+	return true
+
+
+func list_part_rows() -> Array:
+	var rows: Array = []
+	for i in range(parts.size()):
+		var part := parts[i]
+		var path := part_paths[i] if i < part_paths.size() else ""
+		rows.append({
+			"part": part,
+			"path": path,
+			"name": path.get_file() if path != "" else part.name,
+			"gid": get_part_group_id(part),
+			"group_name": get_part_group_name(part),
+			"linked": is_part_linked(part),
+		})
+	return rows
+
+
+func create_link_group_from_index(start_index: int, display_name: String) -> String:
+	if start_index < 0 or start_index >= parts.size():
+		return ""
+	var members: Array = []
+	for i in range(start_index, parts.size()):
+		members.append(parts[i])
+	return create_link_group(display_name, members, true)
+
+

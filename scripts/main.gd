@@ -1,8 +1,8 @@
 extends Node
 
 const SETTINGS_PATH := "user://viewer.cfg"
-const PANEL_WIDTH := 520.0
-const UI_DESKTOP := Vector2i(520, 1120)
+const PANEL_WIDTH := 640.0
+const UI_DESKTOP := Vector2i(640, 1280)
 const UI_VR := Vector2i(1920, 1480)
 
 var _world: Node3D
@@ -40,6 +40,15 @@ var _splat_list: ItemList
 var _splat_folder := ""
 var _splat_folder_label: Label
 var _col_files: VBoxContainer
+var _col_modify: VBoxContainer
+var _col_scene: VBoxContainer
+var _col_world: VBoxContainer
+var _tabs: TabContainer
+var _parts_list: ItemList
+var _parts_status: Label
+var _btn_unlink: Button
+var _btn_relink: Button
+var _btn_delete_part: Button
 var _col_tools: VBoxContainer
 var _wide_row: HBoxContainer
 var _narrow_stack: VBoxContainer
@@ -222,41 +231,38 @@ func _build_ui() -> void:
 
 	shell.add_child(_build_header())
 
+	# Compat stubs — tabs replace the old dual-column layout.
 	_wide_row = HBoxContainer.new()
-	_wide_row.add_theme_constant_override("separation", 12)
-	_wide_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_wide_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_wide_row.visible = false
-	shell.add_child(_wide_row)
-
 	_vr_gutter = ColorRect.new()
-	_vr_gutter.color = Color(0.22, 0.24, 0.28, 1.0)
-	_vr_gutter.custom_minimum_size = Vector2(1, 0)
-	_vr_gutter.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_wide_row.add_child(_vr_gutter)
-
 	_tools_scroll = ScrollContainer.new()
-	_tools_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_tools_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_tools_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_tools_scroll.size_flags_stretch_ratio = 1.0
-	_wide_row.add_child(_tools_scroll)
-
 	_desktop_scroll = ScrollContainer.new()
-	_desktop_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_desktop_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_desktop_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	shell.add_child(_desktop_scroll)
-
+	_desktop_scroll.visible = false
 	_narrow_stack = VBoxContainer.new()
-	_narrow_stack.add_theme_constant_override("separation", 10)
-	_narrow_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_desktop_scroll.add_child(_narrow_stack)
+
+	_tabs = TabContainer.new()
+	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
+	shell.add_child(_tabs)
 
 	_col_files = _build_files_column()
-	_col_tools = _build_tools_column()
-	_narrow_stack.add_child(_col_files)
-	_narrow_stack.add_child(_col_tools)
+	_col_files.name = "Files"
+	_tabs.add_child(_col_files)
+
+	_col_modify = _build_modify_column()
+	_col_modify.name = "Modify"
+	_tabs.add_child(_col_modify)
+
+	_col_scene = _build_scene_column()
+	_col_scene.name = "Scene"
+	_tabs.add_child(_col_scene)
+
+	_col_world = _build_world_column()
+	_col_world.name = "World"
+	_tabs.add_child(_col_world)
+
+	_col_tools = _col_world
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -276,6 +282,8 @@ func _build_ui() -> void:
 	_ui.add_child(_file_dialog)
 
 	_apply_ui_mode(false)
+	if _assembly and not _assembly.changed.is_connected(_refresh_parts_list):
+		_assembly.changed.connect(_refresh_parts_list)
 
 
 func _build_header() -> Control:
@@ -401,21 +409,21 @@ func _build_files_column() -> VBoxContainer:
 	load_row.add_child(_btn_add_pack)
 	_btn_add_all = _btn("Add all", _load_all)
 	load_row.add_child(_btn_add_all)
-	load_row.add_child(_btn("Clear", func(): _assembly.clear()))
+	load_row.add_child(_btn("Clear", func(): _assembly.clear(); _refresh_parts_list()))
 	col.add_child(load_row)
+	return col
 
-	_btn_recenter_board = _btn("Recenter board", _raise_vr_board)
-	_btn_recenter_board.visible = false
-	col.add_child(_btn_recenter_board)
-	_origin_check = CheckBox.new()
-	_origin_check.text = "Assemble by shared origin"
-	_origin_check.button_pressed = false
-	_origin_check.toggled.connect(func(v): _assembly.keep_shared_origin = v)
-	col.add_child(_origin_check)
 
+func _build_modify_column() -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	col.add_child(_section("Size"))
 	var scale_row := HBoxContainer.new()
 	_scale_label = Label.new()
-	_scale_label.custom_minimum_size.x = 90
+	_scale_label.custom_minimum_size.x = 110
 	_scale_label.text = "Size 100%"
 	scale_row.add_child(_scale_label)
 	_scale_slider = HSlider.new()
@@ -424,23 +432,51 @@ func _build_files_column() -> VBoxContainer:
 	_scale_slider.step = 10
 	_scale_slider.value = 100
 	_scale_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scale_slider.custom_minimum_size = Vector2(0, 36)
 	_scale_slider.value_changed.connect(_on_scale_slider)
 	scale_row.add_child(_scale_slider)
 	col.add_child(scale_row)
 	col.add_child(_btn("Return to origin", func(): _assembly.return_to_origin(); _camera.frame_aabb(_assembly.world_aabb())))
+
+	col.add_child(_sep())
+	col.add_child(_build_color_editor())
+
+	col.add_child(_sep())
+	col.add_child(_section("Parts / groups"))
+	_parts_status = Label.new()
+	_parts_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_parts_status.text = "Load a pack to create a linked group (shared origin)."
+	col.add_child(_parts_status)
+	_parts_list = ItemList.new()
+	_parts_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_parts_list.custom_minimum_size = Vector2(0, 220)
+	_parts_list.add_theme_font_size_override("font_size", 16)
+	col.add_child(_parts_list)
+	var prow := HBoxContainer.new()
+	_btn_unlink = _btn("Unlink", _on_unlink_part)
+	_btn_relink = _btn("Link", _on_relink_part)
+	_btn_delete_part = _btn("Delete part", _on_delete_part)
+	prow.add_child(_btn_unlink)
+	prow.add_child(_btn_relink)
+	prow.add_child(_btn_delete_part)
+	col.add_child(prow)
+	_origin_check = CheckBox.new()
+	_origin_check.text = "Classic: assemble by shared origin"
+	_origin_check.button_pressed = false
+	_origin_check.toggled.connect(func(v): _assembly.keep_shared_origin = v)
+	col.add_child(_origin_check)
 	return col
 
 
-func _build_tools_column() -> VBoxContainer:
+func _build_scene_column() -> VBoxContainer:
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 10)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.size_flags_stretch_ratio = 1.0
-
 	col.add_child(_section("Scenes"))
 	_scene_name_edit = LineEdit.new()
 	_scene_name_edit.placeholder_text = "Scene name"
+	_scene_name_edit.custom_minimum_size = Vector2(0, 44)
 	col.add_child(_scene_name_edit)
 	col.add_child(_build_keyboard())
 	var scene_btns := HBoxContainer.new()
@@ -449,12 +485,19 @@ func _build_tools_column() -> VBoxContainer:
 	scene_btns.add_child(_btn("Delete", _delete_scene))
 	col.add_child(scene_btns)
 	_scene_list = ItemList.new()
-	_scene_list.custom_minimum_size = Vector2(0, 88)
+	_scene_list.custom_minimum_size = Vector2(0, 200)
+	_scene_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scene_list.item_selected.connect(func(i): _scene_name_edit.text = _scene_list.get_item_text(i))
 	col.add_child(_scene_list)
 	_refresh_scene_list()
+	return col
 
-	col.add_child(_sep())
+
+func _build_world_column() -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(_section("Environment"))
 	col.add_child(_build_env_radios())
 	col.add_child(_build_splat_section())
@@ -462,10 +505,11 @@ func _build_tools_column() -> VBoxContainer:
 	var light_row := HBoxContainer.new()
 	var light_name := Label.new()
 	light_name.text = "Lighting"
-	light_name.custom_minimum_size.x = 72
+	light_name.custom_minimum_size.x = 90
 	light_row.add_child(light_name)
 	_light_option = OptionButton.new()
 	_light_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_light_option.custom_minimum_size = Vector2(0, 44)
 	_light_option.item_selected.connect(_on_light_selected)
 	light_row.add_child(_light_option)
 	col.add_child(light_row)
@@ -473,7 +517,7 @@ func _build_tools_column() -> VBoxContainer:
 
 	var dim_row := HBoxContainer.new()
 	_dimmer_label = Label.new()
-	_dimmer_label.custom_minimum_size.x = 120
+	_dimmer_label.custom_minimum_size.x = 130
 	_dimmer_label.text = "Light 1.00x"
 	dim_row.add_child(_dimmer_label)
 	_dimmer_slider = HSlider.new()
@@ -482,6 +526,7 @@ func _build_tools_column() -> VBoxContainer:
 	_dimmer_slider.step = 0.01
 	_dimmer_slider.value = 1.0
 	_dimmer_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dimmer_slider.custom_minimum_size = Vector2(0, 36)
 	_dimmer_slider.value_changed.connect(_on_dimmer)
 	dim_row.add_child(_dimmer_slider)
 	col.add_child(dim_row)
@@ -497,6 +542,7 @@ func _build_tools_column() -> VBoxContainer:
 	surround_s.step = 0.05
 	surround_s.value = 0.28
 	surround_s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	surround_s.custom_minimum_size = Vector2(0, 36)
 	surround_s.value_changed.connect(func(v): _stage.set_surround(v))
 	surround_row.add_child(surround_s)
 	col.add_child(surround_row)
@@ -512,19 +558,26 @@ func _build_tools_column() -> VBoxContainer:
 	contrast_s.step = 0.05
 	contrast_s.value = 1.15
 	contrast_s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	contrast_s.custom_minimum_size = Vector2(0, 36)
 	contrast_s.value_changed.connect(func(v): _stage.set_contrast(v))
 	contrast_row.add_child(contrast_s)
 	col.add_child(contrast_row)
 
-	col.add_child(_sep())
-	col.add_child(_build_color_editor())
+	_btn_recenter_board = _btn("Recenter board", _raise_vr_board)
+	_btn_recenter_board.visible = false
+	col.add_child(_btn_recenter_board)
 
 	var help := Label.new()
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.modulate = Color(0.55, 0.58, 0.64)
-	help.text = "VR â€” Index\nA: raise this board\nTrigger on board: click UI\nTrigger near a model: grab that model\nBoth triggers near a model: scale it\nLeft stick: walk   Right stick: turn\n\nDesktop: MMB orbit, wheel zoom, RMB+WASD fly"
+	help.text = "VR: A raises this board. Trigger clicks UI or grabs a linked group / free part. Both triggers scale. Stick walks / turns."
 	col.add_child(help)
 	return col
+
+
+func _build_tools_column() -> VBoxContainer:
+	# Compat shim — World tab owns env/lighting now.
+	return _build_world_column()
 
 
 func _build_env_radios() -> Control:
@@ -702,72 +755,43 @@ func _apply_tint(color: Color, close_mixer: bool) -> void:
 
 
 func _apply_ui_mode(wide: bool) -> void:
-	if _ui_viewport == null or _col_files == null:
+	if _ui_viewport == null or _tabs == null:
 		return
 	_ui_viewport.size = UI_VR if wide else UI_DESKTOP
 	_vr_wide = wide
-	if wide:
-		_reparent_ui(_col_files, _wide_row)
-		_wide_row.move_child(_col_files, 0)
-		_reparent_ui(_vr_gutter, _wide_row)
-		_wide_row.move_child(_vr_gutter, 1)
-		_reparent_ui(_tools_scroll, _wide_row)
-		_wide_row.move_child(_tools_scroll, 2)
-		_reparent_ui(_col_tools, _tools_scroll)
-		_wide_row.visible = true
-		_desktop_scroll.visible = false
-		_col_files.size_flags_stretch_ratio = 1.35
-		_tools_scroll.size_flags_stretch_ratio = 0.9
-		_tools_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_tools_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_file_list.custom_minimum_size = Vector2(0, 360)
-		_file_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		_file_list.add_theme_font_size_override("font_size", 18)
-		_scene_list.custom_minimum_size = Vector2(0, 90)
-		if _splat_list:
-			_splat_list.custom_minimum_size = Vector2(0, 140)
-		if _pack_preview:
-			_pack_preview.custom_minimum_size = Vector2(0, 200)
-		if _tag_filter:
-			_tag_filter.custom_minimum_size = Vector2(0, 44)
-			_tag_filter.add_theme_font_size_override("font_size", 18)
-		if _btn_add_pack:
-			_btn_add_pack.custom_minimum_size = Vector2(0, 52)
-			_btn_add_pack.add_theme_font_size_override("font_size", 18)
-		if _btn_recenter_board:
-			_btn_recenter_board.visible = true
-		if _status:
-			_status.add_theme_font_size_override("font_size", 16)
-	else:
-		_reparent_ui(_col_files, _narrow_stack)
-		_reparent_ui(_col_tools, _narrow_stack)
-		_wide_row.visible = false
-		_desktop_scroll.visible = true
-		if _tools_scroll:
-			_tools_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-			_tools_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_file_list.custom_minimum_size = Vector2(0, 260)
-		_file_list.add_theme_font_size_override("font_size", 16)
-		_scene_list.custom_minimum_size = Vector2(0, 88)
-		if _splat_list:
-			_splat_list.custom_minimum_size = Vector2(0, 140)
-		if _pack_preview:
-			_pack_preview.custom_minimum_size = Vector2(0, 140)
-		if _tag_filter:
-			_tag_filter.custom_minimum_size = Vector2(0, 0)
-			_tag_filter.add_theme_font_size_override("font_size", 16)
-		if _btn_add_pack:
-			_btn_add_pack.custom_minimum_size = Vector2(0, 40)
-			_btn_add_pack.add_theme_font_size_override("font_size", 16)
-		if _btn_recenter_board:
-			_btn_recenter_board.visible = false
-		if _keyboard_grid:
-			_keyboard_grid.visible = false
-		if _desktop_host:
-			_desktop_host.offset_right = PANEL_WIDTH
+	if _desktop_host:
+		_desktop_host.offset_right = PANEL_WIDTH
+	var btn_h := 52 if wide else 44
+	var list_h := 420 if wide else 280
+	var preview_h := 240 if wide else 160
+	if _file_list:
+		_file_list.custom_minimum_size = Vector2(0, list_h)
+		_file_list.add_theme_font_size_override("font_size", 18 if wide else 16)
+	if _parts_list:
+		_parts_list.custom_minimum_size = Vector2(0, 260 if wide else 200)
+		_parts_list.add_theme_font_size_override("font_size", 18 if wide else 16)
+	if _scene_list:
+		_scene_list.custom_minimum_size = Vector2(0, 220 if wide else 160)
+	if _splat_list:
+		_splat_list.custom_minimum_size = Vector2(0, 180 if wide else 140)
+	if _pack_preview:
+		_pack_preview.custom_minimum_size = Vector2(0, preview_h)
+	if _tag_filter:
+		_tag_filter.custom_minimum_size = Vector2(0, 48 if wide else 0)
+		_tag_filter.add_theme_font_size_override("font_size", 18 if wide else 16)
+	if _btn_add_pack:
+		_btn_add_pack.custom_minimum_size = Vector2(0, btn_h)
+		_btn_add_pack.add_theme_font_size_override("font_size", 18 if wide else 16)
+	if _btn_recenter_board:
+		_btn_recenter_board.visible = wide
 	if _files_keyboard:
-		# On-screen keyboard is for VR only; desktop uses the physical keyboard.
 		_files_keyboard.visible = wide
+	if not wide and _keyboard_grid:
+		_keyboard_grid.visible = false
+	if _status:
+		_status.add_theme_font_size_override("font_size", 16 if wide else 14)
+	if _tabs:
+		_tabs.add_theme_font_size_override("font_size", 18 if wide else 16)
 	if _xr and _xr.board:
 		_xr.board.use_viewport(_ui_viewport)
 
@@ -848,6 +872,70 @@ func _on_tag_filter_focus() -> void:
 		_files_keyboard.visible = true
 	if _keyboard_grid:
 		_keyboard_grid.visible = true
+
+
+
+func _refresh_parts_list() -> void:
+	if _parts_list == null:
+		return
+	_parts_list.clear()
+	var rows: Array = _assembly.list_part_rows()
+	for row in rows:
+		var mark := "[L]" if bool(row.get("linked", false)) else "[ ]"
+		var g := str(row.get("group_name", ""))
+		var label := "%s %s" % [mark, str(row.get("name", "part"))]
+		if g != "":
+			label += "  -  %s" % g
+		_parts_list.add_item(label)
+		_parts_list.set_item_metadata(_parts_list.item_count - 1, row.get("part"))
+	if _parts_status:
+		var n := rows.size()
+		var linked_n := 0
+		for row2 in rows:
+			if bool(row2.get("linked", false)):
+				linked_n += 1
+		_parts_status.text = "%s part%s - %s linked. Unlink to move/delete alone; Link keeps current pose." % [
+			n, "" if n == 1 else "s", linked_n
+		]
+
+
+func _selected_part_from_list() -> Node3D:
+	if _parts_list == null or _parts_list.get_selected_items().is_empty():
+		return null
+	var i: int = _parts_list.get_selected_items()[0]
+	var meta = _parts_list.get_item_metadata(i)
+	return meta as Node3D
+
+
+func _on_unlink_part() -> void:
+	var part := _selected_part_from_list()
+	if part == null:
+		_status.text = "Select a part in Modify."
+		return
+	_assembly.set_part_linked(part, false)
+	_refresh_parts_list()
+	_status.text = "Unlinked - move or delete freely."
+
+
+func _on_relink_part() -> void:
+	var part := _selected_part_from_list()
+	if part == null:
+		_status.text = "Select a part in Modify."
+		return
+	_assembly.set_part_linked(part, true)
+	_refresh_parts_list()
+	_status.text = "Linked - keeps current offset in its group."
+
+
+func _on_delete_part() -> void:
+	var part := _selected_part_from_list()
+	if part == null:
+		_status.text = "Select a part in Modify."
+		return
+	_assembly.remove_part(part)
+	_refresh_parts_list()
+	_update_status()
+	_status.text = "Deleted one part."
 
 
 func _focus_library_filter() -> void:
@@ -1372,9 +1460,12 @@ func _load_library_pack(pack: LibraryPack) -> void:
 	if start_n > 0:
 		_assembly.offset_parts_from_index(start_n)
 		_assembly.ground_parts_from_index(start_n)
+	var gname := pack.display_name if pack.display_name != "" else pack.pack_id
+	_assembly.create_link_group_from_index(start_n, gname)
+	_refresh_parts_list()
 	if not _xr.xr_active:
 		_camera.frame_aabb(_assembly.world_aabb())
-	_status.text = "Added %s - %s" % [pack.display_name if pack.display_name != "" else pack.pack_id, _assembly.last_message]
+	_status.text = "Added %s - %s" % [gname, _assembly.last_message]
 	_update_status()
 
 
@@ -1389,7 +1480,12 @@ func _load_all() -> void:
 func _load_paths(paths: PackedStringArray) -> void:
 	_status.text = "Loading..."
 	await get_tree().process_frame
+	var start_n := _assembly.parts.size()
 	_assembly.load_paths(paths, false)
+	if _assembly.keep_shared_origin and _assembly.parts.size() > start_n:
+		var gname := "Group %s" % _assembly._next_link_id
+		_assembly.create_link_group_from_index(start_n, gname)
+	_refresh_parts_list()
 	if not _xr.xr_active:
 		_camera.frame_aabb(_assembly.world_aabb())
 	_status.text = _assembly.last_message
@@ -1860,8 +1956,8 @@ func _run_regression() -> int:
 		fails.append("UI viewport size collapsed in VR")
 	if _ui_viewport.get_texture() == null:
 		fails.append("UI viewport has no texture")
-	if _wide_row == null or not _wide_row.visible:
-		fails.append("VR two-column layout not shown")
+	if _tabs == null or _tabs.get_tab_count() < 4:
+		fails.append("VR tab dashboard missing tabs")
 	_on_xr_stopped()
 	await get_tree().process_frame
 	if _ui_viewport.size.x > 700:
