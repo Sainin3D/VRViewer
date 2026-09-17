@@ -1793,7 +1793,7 @@ func _run_regression() -> int:
 		fails.append("Add selected button missing")
 	if not "Library (model-tags)" in names:
 		fails.append("Library (model-tags) toggle missing")
-	var issa_root := "C:/Users/zacha/Downloads/Issa"
+	var issa_root := "res://samples"  # optional local dogfood pack path
 	if DirAccess.dir_exists_absolute(issa_root):
 		var adapter := ModelTagsLibrary.new()
 		adapter.set_root(issa_root)

@@ -113,7 +113,7 @@ Third-party: `addons/gdgs` is MIT (GDGS). Your mesh packs and previews remain **
 
 ## Status
 
-Active personal / workshop tool. VR dashboard, Library tagging, and pack options are evolving; large private vaults stay out of git by design.
+Active workshop tool. VR dashboard, Library tagging, and pack options are evolving; large private vaults stay out of git by design.
 
 ## Contributing
 
