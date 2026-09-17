@@ -2,7 +2,7 @@
 
 This viewer is a **host**. A gallery plugin (or this repo’s first-party `model-tags` adapter) discovers **packs**; the host loads meshes through the existing `ModelLoader` / `ModelAssembly` path.
 
-Dogfood pack: `C:\Users\zacha\Downloads\Issa` (`pack_id` `issa`, tags include `ball-gag`). Do not rename those STLs.
+Dogfood pack: `path/to/Issa` (`pack_id` `issa`, tags include `ball-gag`). Do not rename those STLs.
 
 ## Host guarantees
 
@@ -24,6 +24,6 @@ Dogfood pack: `C:\Users\zacha\Downloads\Issa` (`pack_id` `issa`, tags include `b
 ## Try it
 
 1. Enable **Library (model-tags)** in the Files panel.
-2. Point the folder field at `C:\Users\zacha\Downloads\Issa` (or the parent folder if you keep many packs).
+2. Point the folder field at `path/to/Issa` (or the parent folder if you keep many packs).
 3. Type `ball-gag` in the tag filter — pack `issa` should remain.
 4. Activate the pack (or Add selected) to load `Base.stl` / `Body.stl` / `Head.stl` / … with shared origin.
