@@ -1,8 +1,8 @@
 extends Node
 
 const SETTINGS_PATH := "user://viewer.cfg"
-const PANEL_WIDTH := 640.0
-const UI_DESKTOP := Vector2i(640, 1280)
+const PANEL_WIDTH := 720.0
+const UI_DESKTOP := Vector2i(720, 1600)
 const UI_VR := Vector2i(1920, 1480)
 
 var _world: Node3D
@@ -44,6 +44,10 @@ var _col_modify: VBoxContainer
 var _col_scene: VBoxContainer
 var _col_world: VBoxContainer
 var _tabs: TabContainer
+var _files_page: VBoxContainer
+var _files_scroll: ScrollContainer
+var _files_load_row: HBoxContainer
+var _tab_scrolls: Array = []
 var _parts_list: ItemList
 var _parts_status: Label
 var _btn_unlink: Button
@@ -245,22 +249,35 @@ func _build_ui() -> void:
 	_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
 	shell.add_child(_tabs)
+	_tab_scrolls.clear()
 
+	# Files: scrollable body + sticky load row so Add pack stays reachable in 2D.
+	_files_page = VBoxContainer.new()
+	_files_page.name = "Files"
+	_files_page.add_theme_constant_override("separation", 8)
+	_files_page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_files_scroll = ScrollContainer.new()
+	_files_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_files_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_col_files = _build_files_column()
-	_col_files.name = "Files"
-	_tabs.add_child(_col_files)
+	_col_files.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_scroll.add_child(_col_files)
+	_files_page.add_child(_files_scroll)
+	_files_load_row = _build_files_load_row()
+	_files_page.add_child(_files_load_row)
+	_tabs.add_child(_files_page)
+	_tab_scrolls.append(_files_scroll)
 
 	_col_modify = _build_modify_column()
-	_col_modify.name = "Modify"
-	_tabs.add_child(_col_modify)
+	_tabs.add_child(_wrap_tab_scroll("Modify", _col_modify))
 
 	_col_scene = _build_scene_column()
-	_col_scene.name = "Scene"
-	_tabs.add_child(_col_scene)
+	_tabs.add_child(_wrap_tab_scroll("Scene", _col_scene))
 
 	_col_world = _build_world_column()
-	_col_world.name = "World"
-	_tabs.add_child(_col_world)
+	_tabs.add_child(_wrap_tab_scroll("World", _col_world))
 
 	_col_tools = _col_world
 
@@ -282,6 +299,7 @@ func _build_ui() -> void:
 	_ui.add_child(_file_dialog)
 
 	_apply_ui_mode(false)
+	_fit_desktop_viewport()
 	if _assembly and not _assembly.changed.is_connected(_refresh_parts_list):
 		_assembly.changed.connect(_refresh_parts_list)
 
@@ -304,6 +322,44 @@ func _build_header() -> Control:
 	_vr_button.custom_minimum_size = Vector2(140, 44)
 	header.add_child(_vr_button)
 	return header
+
+
+
+func _wrap_tab_scroll(tab_name: String, body: Control) -> ScrollContainer:
+	var sc := ScrollContainer.new()
+	sc.name = tab_name
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(body)
+	_tab_scrolls.append(sc)
+	return sc
+
+
+func _build_files_load_row() -> HBoxContainer:
+	var load_row := HBoxContainer.new()
+	load_row.add_theme_constant_override("separation", 8)
+	_btn_add_pack = _btn("Add pack / files", _load_selected)
+	_btn_add_pack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	load_row.add_child(_btn_add_pack)
+	_btn_add_all = _btn("Add all", _load_all)
+	load_row.add_child(_btn_add_all)
+	load_row.add_child(_btn("Clear", func(): _assembly.clear(); _refresh_parts_list()))
+	return load_row
+
+
+func _fit_desktop_viewport() -> void:
+	## Match UI SubViewport height to the game window so 2D isn't a tiny fixed canvas.
+	if _ui_viewport == null or _vr_wide:
+		return
+	var win_h := int(get_window().size.y)
+	var h := clampi(win_h, 960, 2000)
+	var w := int(PANEL_WIDTH)
+	if _ui_viewport.size.x != w or _ui_viewport.size.y != h:
+		_ui_viewport.size = Vector2i(w, h)
+	if _desktop_host:
+		_desktop_host.offset_right = PANEL_WIDTH
 
 
 func _build_files_column() -> VBoxContainer:
@@ -404,13 +460,7 @@ func _build_files_column() -> VBoxContainer:
 	_file_list.item_mouse_selected.connect(_on_file_mouse_selected)
 	col.add_child(_file_list)
 
-	var load_row := HBoxContainer.new()
-	_btn_add_pack = _btn("Add pack / files", _load_selected)
-	load_row.add_child(_btn_add_pack)
-	_btn_add_all = _btn("Add all", _load_all)
-	load_row.add_child(_btn_add_all)
-	load_row.add_child(_btn("Clear", func(): _assembly.clear(); _refresh_parts_list()))
-	col.add_child(load_row)
+	# Load / Clear live in the sticky footer outside the scroll (_build_files_load_row).
 	return col
 
 
@@ -754,16 +804,27 @@ func _apply_tint(color: Color, close_mixer: bool) -> void:
 		_close_color_mixer()
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_SIZE_CHANGED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		if not _vr_wide:
+			_fit_desktop_viewport()
+
+
 func _apply_ui_mode(wide: bool) -> void:
 	if _ui_viewport == null or _tabs == null:
 		return
-	_ui_viewport.size = UI_VR if wide else UI_DESKTOP
 	_vr_wide = wide
+	if wide:
+		_ui_viewport.size = UI_VR
+	else:
+		_fit_desktop_viewport()
 	if _desktop_host:
 		_desktop_host.offset_right = PANEL_WIDTH
+		_desktop_host.visible = not wide
 	var btn_h := 52 if wide else 44
-	var list_h := 420 if wide else 280
-	var preview_h := 240 if wide else 160
+	# Desktop: smaller list mins + scroll so Add pack stays on-screen.
+	var list_h := 420 if wide else 180
+	var preview_h := 240 if wide else 120
 	if _file_list:
 		_file_list.custom_minimum_size = Vector2(0, list_h)
 		_file_list.add_theme_font_size_override("font_size", 18 if wide else 16)
@@ -784,6 +845,18 @@ func _apply_ui_mode(wide: bool) -> void:
 		_btn_add_pack.add_theme_font_size_override("font_size", 18 if wide else 16)
 	if _btn_recenter_board:
 		_btn_recenter_board.visible = wide
+	# Desktop tabs scroll; VR board is sized to fit so keep scroll off when possible.
+	for sc in _tab_scrolls:
+		if sc is ScrollContainer:
+			sc.vertical_scroll_mode = (
+				ScrollContainer.SCROLL_MODE_DISABLED if wide else ScrollContainer.SCROLL_MODE_AUTO
+			)
+	if _files_scroll:
+		_files_scroll.vertical_scroll_mode = (
+			ScrollContainer.SCROLL_MODE_DISABLED if wide else ScrollContainer.SCROLL_MODE_AUTO
+		)
+	if _files_load_row:
+		_files_load_row.visible = true
 	if _files_keyboard:
 		_files_keyboard.visible = wide
 	if not wide and _keyboard_grid:
