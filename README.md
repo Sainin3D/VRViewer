@@ -27,32 +27,29 @@ Private artist vaults (e.g. large pack libraries) stay on your machine — see [
 
 ## Run
 
-1. Clone this repo.
-2. Install Godot 4.7 (standard).
-3. Optional: place `Godot_v4.7-stable_win64.exe` next to `project.godot` and double-click `run.bat`, **or** open `project.godot` from the Godot Project Manager and press Play.
-4. Sample meshes live in `samples/` — try **Classic files** → `samples/assembly` → **Add all**.
+This is a **Godot 4.7 project** (source). We do **not** ship the Godot editor binary in git — you bring one of these:
+
+### Option A — Portable exe in the project folder (easiest handoff)
+
+1. Clone / copy this repo.
+2. Download [Godot 4.7 Windows 64-bit](https://godotengine.org/download/windows/) (standard build, **not** .NET).
+3. Put `Godot_v4.7-stable_win64.exe` next to `project.godot` (same folder as `run.bat`).
+4. Double-click **`run.bat`**.
+
+`run.bat` will prefer that local exe. On Linux/macOS use **`./run.sh`** the same way (drop a Godot 4.7 binary beside `project.godot`, or have `godot` on `PATH`).
+
+### Option B — Installed Godot
+
+1. Install Godot 4.7 system-wide (or via Scoop/package manager) so `godot` is on `PATH`, **or** install under a normal Godot folder.
+2. Double-click `run.bat` / run `./run.sh`, **or** open `project.godot` from the Godot Project Manager and press Play.
+
+### VR
+
+Start SteamVR first, then Play (or F6).
 
 Logs (if the window flashes and closes): `%APPDATA%\Godot\app_userdata\VR Model Viewer\logs\godot.log`.
 
-### SteamVR / OpenXR
-
-1. Start SteamVR with the headset on.
-2. SteamVR → **Settings → OpenXR** → set **SteamVR** as the OpenXR runtime.
-3. Launch the app → **Enter VR** (or `F1`). **A** shows/hides the dashboard; **Esc** exits VR.
-
-Godot talks to the headset through **OpenXR**, not the legacy OpenVR plugin.
-
-### VR controls (Index / similar)
-
-| Input | Action |
-| --- | --- |
-| **A** (or menu) | Show / hide / recenter dashboard |
-| Trigger on dashboard | Click UI |
-| Stick / trackpad over dashboard | Scroll |
-| Trigger near model | Grab |
-| Both triggers near model | Scale |
-| Left stick (not on board) | Walk |
-| Right stick flick | Snap turn |
+> **Players vs contributors:** contributors run the editor as above. A one-click “game only” build for players is a separate Godot **export** (Windows/Linux pack) we can add later — that is not the same as committing `Godot*.exe` into the repo.
 
 ## Library mode & tagging
 
