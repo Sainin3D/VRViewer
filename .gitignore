@@ -20,6 +20,7 @@ godot*.exe
 library/**
 !library/README.md
 !library/.gitkeep
+!library/.gdignore
 
 # --- OS / junk ---
 .DS_Store

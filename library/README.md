@@ -22,3 +22,12 @@ Example (not shipped): `library/Karina/...`
 4. In the app, switch to **Library** — it scans `res://library`.
 
 The viewer never requires renaming your STLs; the sidecar describes them.
+
+## Godot import / cache
+
+Put a `.gdignore` file in this folder (this repo ships one). That tells the **editor** not to import thousands of STLs when you open the project.
+
+The app still reads packs at **runtime** via the real filesystem path (`ProjectSettings.globalize_path("res://library")`). Fast editor open + Library mode both work.
+
+If you already waited through a huge first import, delete the project `.godot/` folder once after pulling this change, then reopen — Godot will stop chewing the vault.
+

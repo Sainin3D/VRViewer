@@ -114,6 +114,11 @@ Active workshop tool. VR dashboard, Library tagging, and pack options are evolvi
 
 ## Troubleshooting
 
+
+### First open is slow / building cache forever
+
+If `library/` holds a big mesh vault, Godot will try to **import** it unless the folder has a `.gdignore`. This repo includes `library/.gdignore` so the editor skips that vault; Library mode still loads packs at runtime. After pulling, delete `.godot/` once and reopen so old import work is discarded.
+
 ### `Could not find type "EnvironmentStage"` (and a cascade of missing class names)
 
 That usually means Godot has not rebuilt its script class cache (the `.godot/` folder is gitignored except for a seed cache). It is **not** caused by adding packs under `library/`.
