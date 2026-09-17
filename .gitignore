@@ -1,5 +1,5 @@
 ﻿# --- Godot ---
-.godot/
+.godot/*
 !.godot/global_script_class_cache.cfg
 .nomedia
 .import/
