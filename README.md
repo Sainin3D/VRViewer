@@ -114,3 +114,17 @@ Third-party: `addons/gdgs` is MIT (GDGS). Your mesh packs and previews remain **
 ## Status
 
 Active workshop tool. VR dashboard, Library tagging, and pack options are evolving; large private vaults stay out of git by design.
+
+## Troubleshooting
+
+### `Could not find type "EnvironmentStage"` (and a cascade of missing class names)
+
+That usually means Godot has not rebuilt its script class cache (the `.godot/` folder is gitignored except for a seed cache). It is **not** caused by adding packs under `library/`.
+
+1. Fully quit Godot.
+2. Delete the project’s `.godot/` folder (keep `project.godot` and `scripts/`).
+3. Open the folder that contains `project.godot` with **Godot 4.7**.
+4. Wait for the import/scan to finish, then run the main scene again.
+
+If it still fails, confirm `scripts/stage/environment_stage.gd` and friends exist after your pull, and that Editor Settings is not treating GDScript warnings as errors.
+
