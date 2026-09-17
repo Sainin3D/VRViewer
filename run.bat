@@ -2,30 +2,21 @@
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
-rem ---------------------------------------------------------------------------
-rem Find Godot 4.7: portable exe in this folder, then installs, then PATH.
-rem Default: open the EDITOR (-e).  Use:  run.bat play   to run the main scene.
-rem ---------------------------------------------------------------------------
-
+rem Default: run the app (main scene).  For the editor:  run.bat editor
 set "GODOT="
-set "MODE=editor"
-if /I "%~1"=="play" (
-  set "MODE=play"
-  shift
-)
+set "MODE=play"
 if /I "%~1"=="editor" (
   set "MODE=editor"
   shift
 )
-
-rem Exact filenames people usually drop here.
-if exist "%~dp0Godot_v4.7-stable_win64.exe" set "GODOT=%~dp0Godot_v4.7-stable_win64.exe"
-if not defined GODOT if exist "%~dp0Godot_v4.7.1-stable_win64.exe" set "GODOT=%~dp0Godot_v4.7.1-stable_win64.exe"
-if not defined GODOT if exist "%~dp0Godot_v4.7-stable_win64_console.exe" (
-  rem Prefer the non-console build if both exist; console is fine as last portable resort later.
+if /I "%~1"=="play" (
+  set "MODE=play"
+  shift
 )
 
-rem Scan folder for Godot_v4.7*_win64.exe (skip console / mono / dotnet).
+if exist "%~dp0Godot_v4.7-stable_win64.exe" set "GODOT=%~dp0Godot_v4.7-stable_win64.exe"
+if not defined GODOT if exist "%~dp0Godot_v4.7.1-stable_win64.exe" set "GODOT=%~dp0Godot_v4.7.1-stable_win64.exe"
+
 if not defined GODOT (
   for /f "delims=" %%F in ('dir /b /a:-d "%~dp0Godot_v4.7*_win64.exe" 2^>nul') do (
     set "N=%%F"
@@ -36,7 +27,6 @@ if not defined GODOT (
   )
 )
 
-rem Broader portable: any Godot_*.exe that is not console/dotnet.
 if not defined GODOT (
   for /f "delims=" %%F in ('dir /b /a:-d "%~dp0Godot_*.exe" 2^>nul') do (
     set "N=%%F"
@@ -47,12 +37,10 @@ if not defined GODOT (
   )
 )
 
-rem Install locations.
 if not defined GODOT if exist "%LocalAppData%\Godot\Godot_v4.7-stable_win64.exe" set "GODOT=%LocalAppData%\Godot\Godot_v4.7-stable_win64.exe"
 if not defined GODOT if exist "%ProgramFiles%\Godot\Godot_v4.7-stable_win64.exe" set "GODOT=%ProgramFiles%\Godot\Godot_v4.7-stable_win64.exe"
 if not defined GODOT if exist "%ProgramFiles%\Godot\Godot.exe" set "GODOT=%ProgramFiles%\Godot\Godot.exe"
 
-rem PATH shim.
 if not defined GODOT (
   where godot >nul 2>nul
   if not errorlevel 1 (
@@ -64,33 +52,33 @@ if not defined GODOT (
 
 if not defined GODOT (
   echo.
-  echo VR Viewer needs Godot 4.7 ^(standard Windows 64-bit, not the .NET build^).
-  echo.
-  echo   1. Download: https://godotengine.org/download/windows/
-  echo   2. Put Godot_v4.7-stable_win64.exe next to project.godot
-  echo   3. Double-click run.bat again
+  echo VR Viewer needs Godot 4.7 ^(standard Windows 64-bit, not .NET^).
+  echo Put Godot_v4.7-stable_win64.exe next to project.godot, then run again.
+  echo Download: https://godotengine.org/download/windows/
   echo.
   pause
   exit /b 1
 )
 
 if not exist "%~dp0project.godot" (
-  echo project.godot is missing. Use the full project folder.
-  echo.
+  echo project.godot is missing.
   pause
   exit /b 1
 )
 
 echo Using:  %GODOT%
 echo Project: %~dp0
-if /I "%MODE%"=="play" (
-  echo Mode:    play ^(main scene^)
-  echo.
-  "%GODOT%" --path "%~dp0." %*
-) else (
+if /I "%MODE%"=="editor" (
   echo Mode:    editor
   echo.
   "%GODOT%" -e --path "%~dp0." %*
+) else (
+  echo Mode:    app ^(main scene^)
+  echo Tip:     for VR, start SteamVR first. Desktop view works without it.
+  echo          Editor: run.bat editor
+  echo.
+  rem Run the game, not the editor. Forward any extra args after "play".
+  "%GODOT%" --path "%~dp0." %*
 )
 set "ERR=!ERRORLEVEL!"
 
@@ -99,15 +87,10 @@ if not "!ERR!"=="0" (
   echo Godot exited with code !ERR!.
   echo Log: %APPDATA%\Godot\app_userdata\VR Model Viewer\logs\godot.log
   echo.
+  echo If the window flashed: try "run.bat editor", then press Play once imports finish.
+  echo.
   pause
   exit /b !ERR!
-)
-
-rem If play mode returned 0 instantly, still give a beat when launched by double-click.
-if /I "%MODE%"=="play" (
-  echo.
-  echo Play mode finished ^(exit 0^). If the window flashed, check the log above.
-  pause
 )
 
 exit /b 0

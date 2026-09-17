@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Launch VR Viewer. Default: editor.  ./run.sh play  → run main scene.
+# Default: run the app.  ./run.sh editor  → Godot editor.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-MODE=editor
-if [[ "${1:-}" == "play" ]]; then MODE=play; shift; fi
+MODE=play
 if [[ "${1:-}" == "editor" ]]; then MODE=editor; shift; fi
+if [[ "${1:-}" == "play" ]]; then MODE=play; shift; fi
 
 GODOT=""
 for c in \
@@ -21,8 +21,7 @@ if [[ -z "$GODOT" ]] && command -v godot4 >/dev/null 2>&1; then GODOT="$(command
 if [[ -z "$GODOT" ]] && command -v godot >/dev/null 2>&1; then GODOT="$(command -v godot)"; fi
 
 if [[ -z "$GODOT" ]]; then
-  echo "VR Viewer needs Godot 4.7."
-  echo "Drop a Godot 4.7 binary next to project.godot, or put godot on PATH."
+  echo "VR Viewer needs Godot 4.7 next to project.godot, or on PATH."
   exit 1
 fi
 if [[ ! -f "$ROOT/project.godot" ]]; then
@@ -33,8 +32,8 @@ fi
 echo "Using:  $GODOT"
 echo "Project: $ROOT"
 echo "Mode:   $MODE"
-if [[ "$MODE" == "play" ]]; then
-  exec "$GODOT" --path "$ROOT" "$@"
-else
+if [[ "$MODE" == "editor" ]]; then
   exec "$GODOT" -e --path "$ROOT" "$@"
+else
+  exec "$GODOT" --path "$ROOT" "$@"
 fi

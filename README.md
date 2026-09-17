@@ -34,9 +34,9 @@ This is a **Godot 4.7 project** (source). We do **not** ship the Godot editor bi
 1. Clone / copy this repo.
 2. Download [Godot 4.7 Windows 64-bit](https://godotengine.org/download/windows/) (standard build, **not** .NET).
 3. Put `Godot_v4.7-stable_win64.exe` next to `project.godot` (same folder as `run.bat`).
-4. Double-click **`run.bat`** (opens the **editor**). Use `run.bat play` only when you want to run the main scene without the editor.
+4. Double-click **`run.bat`** to launch the **app**. Use `run.bat editor` when you want the Godot editor.
 
-`run.bat` / `./run.sh` prefer that local binary and open the **editor** by default (same as double-clicking Godot and opening the project). `run.bat play` / `./run.sh play` runs the main scene instead.
+`run.bat` / `./run.sh` prefer that local binary and launch the **app** (main scene). `run.bat editor` / `./run.sh editor` opens the Godot editor for development.
 
 ### Option B — Installed Godot
 
