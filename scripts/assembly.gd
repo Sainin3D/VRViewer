@@ -29,6 +29,8 @@ var selected_part: Node3D = null
 var rest_scale := 1.0
 var size_percent := 100.0
 var spawn_transform := Transform3D.IDENTITY
+var spawn_part_xforms: Dictionary = {}  # part instance_id -> global Transform3D at spawn
+var spawn_group_xforms: Dictionary = {}  # gid -> group root global Transform3D at spawn
 
 var _highlight_mat: StandardMaterial3D
 
@@ -65,6 +67,8 @@ func clear() -> void:
 	rest_scale = 1.0
 	size_percent = 100.0
 	spawn_transform = Transform3D.IDENTITY
+	spawn_part_xforms.clear()
+	spawn_group_xforms.clear()
 	changed.emit()
 
 
@@ -254,16 +258,26 @@ func set_size_percent(percent: float) -> void:
 
 
 func return_to_origin() -> void:
-	## Restore assembly spawn pose only (does not move the XR player / camera).
+	## Put models back where they spawned after load. Does not move the XR player.
 	var kept := size_percent
 	position = spawn_transform.origin
 	rotation = spawn_transform.basis.get_euler()
-	# Apply size without the in-place pivot dance relative to a moved pose:
-	# spawn was captured at rest_scale / 100%, so set scale then snap floor.
 	size_percent = kept
 	var s := rest_scale * (size_percent / 100.0)
 	scale = Vector3.ONE * maxf(s, 0.0001)
-	_snap_to_floor()
+	# Restore link-group roots first, then each part (grabs move these, not always the assembly).
+	for gid in spawn_group_xforms.keys():
+		if not link_groups.has(gid):
+			continue
+		var root: Node3D = link_groups[gid].get("root")
+		if root and is_instance_valid(root):
+			root.global_transform = spawn_group_xforms[gid]
+	for p in parts:
+		if p == null or not is_instance_valid(p):
+			continue
+		var id := p.get_instance_id()
+		if spawn_part_xforms.has(id):
+			p.global_transform = spawn_part_xforms[id]
 	changed.emit()
 
 
@@ -297,6 +311,24 @@ func _capture_spawn() -> void:
 	rest_scale = maxf(scale.x, 0.0001)
 	size_percent = 100.0
 	spawn_transform = transform
+	capture_spawn_poses(0)
+
+
+func capture_spawn_poses(from_index: int = 0) -> void:
+	## Remember where parts / link groups sat after load (used by return_to_origin).
+	if from_index <= 0:
+		spawn_part_xforms.clear()
+		spawn_group_xforms.clear()
+		spawn_transform = transform
+	for i in range(maxi(from_index, 0), parts.size()):
+		var p := parts[i]
+		if p and is_instance_valid(p):
+			spawn_part_xforms[p.get_instance_id()] = p.global_transform
+	for gid in link_groups.keys():
+		var g: Dictionary = link_groups[gid]
+		var root: Node3D = g.get("root")
+		if root and is_instance_valid(root):
+			spawn_group_xforms[gid] = root.global_transform
 
 
 func _snap_to_floor() -> void:

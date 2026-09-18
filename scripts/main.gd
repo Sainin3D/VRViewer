@@ -47,6 +47,14 @@ var _tabs: TabContainer
 var _files_page: VBoxContainer
 var _files_scroll: ScrollContainer
 var _files_load_row: HBoxContainer
+var _files_body_row: HBoxContainer
+var _pack_detail_pane: PanelContainer
+var _pack_detail_inner: VBoxContainer
+var _btn_close_pack_detail: Button
+var _kb_layer: Control
+var _kb_panel: PanelContainer
+var _kb_target: LineEdit
+var _kb_title: Label
 var _tab_scrolls: Array = []
 var _parts_list: ItemList
 var _parts_status: Label
@@ -250,20 +258,28 @@ func _build_ui() -> void:
 	shell.add_child(_tabs)
 	_tab_scrolls.clear()
 
-	# Files: scrollable body + sticky load row so Add pack stays reachable in 2D.
+	# Files: list stays stable; pack details open in a side pane (does not grow the list).
 	_files_page = VBoxContainer.new()
 	_files_page.name = "Files"
 	_files_page.add_theme_constant_override("separation", 8)
 	_files_page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_files_page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_files_body_row = HBoxContainer.new()
+	_files_body_row.add_theme_constant_override("separation", 10)
+	_files_body_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_files_body_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_files_scroll = ScrollContainer.new()
 	_files_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_files_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_scroll.size_flags_stretch_ratio = 1.15
 	_files_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_col_files = _build_files_column()
 	_col_files.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_files_scroll.add_child(_col_files)
-	_files_page.add_child(_files_scroll)
+	_files_body_row.add_child(_files_scroll)
+	_pack_detail_pane = _build_pack_detail_pane()
+	_files_body_row.add_child(_pack_detail_pane)
+	_files_page.add_child(_files_body_row)
 	_files_load_row = _build_files_load_row()
 	_files_page.add_child(_files_load_row)
 	_tabs.add_child(_files_page)
@@ -336,6 +352,195 @@ func _wrap_tab_scroll(tab_name: String, body: Control) -> ScrollContainer:
 	return sc
 
 
+
+func _build_pack_detail_pane() -> PanelContainer:
+	var pane := PanelContainer.new()
+	pane.visible = false
+	pane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pane.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pane.size_flags_stretch_ratio = 0.95
+	pane.custom_minimum_size = Vector2(280, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.12, 0.14, 0.18, 1.0)
+	style.set_content_margin_all(10)
+	pane.add_theme_stylebox_override("panel", style)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pane.add_child(sc)
+	_pack_detail_inner = VBoxContainer.new()
+	_pack_detail_inner.add_theme_constant_override("separation", 8)
+	_pack_detail_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_pack_detail_inner)
+	var head := HBoxContainer.new()
+	var ttl := Label.new()
+	ttl.text = "Pack detail"
+	ttl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ttl.add_theme_font_size_override("font_size", 18)
+	head.add_child(ttl)
+	_btn_close_pack_detail = _btn("Close", _close_pack_detail)
+	head.add_child(_btn_close_pack_detail)
+	_pack_detail_inner.add_child(head)
+	_pack_preview = TextureRect.new()
+	_pack_preview.custom_minimum_size = Vector2(0, 180)
+	_pack_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_pack_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_pack_detail_inner.add_child(_pack_preview)
+	_pack_title = Label.new()
+	_pack_title.add_theme_font_size_override("font_size", 20)
+	_pack_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pack_detail_inner.add_child(_pack_title)
+	_pack_meta_label = Label.new()
+	_pack_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pack_detail_inner.add_child(_pack_meta_label)
+	_options_title = Label.new()
+	_options_title.text = "Options"
+	_pack_detail_inner.add_child(_options_title)
+	_options_box = VBoxContainer.new()
+	_options_box.add_theme_constant_override("separation", 8)
+	_pack_detail_inner.add_child(_options_box)
+	return pane
+
+
+func _close_pack_detail() -> void:
+	_selected_pack = null
+	_clear_options_ui()
+	if _pack_detail_pane:
+		_pack_detail_pane.visible = false
+	if _pack_preview:
+		_pack_preview.texture = null
+	if _pack_title:
+		_pack_title.text = ""
+	if _pack_meta_label:
+		_pack_meta_label.text = ""
+
+
+func _open_pack_detail() -> void:
+	if _pack_detail_pane == null:
+		return
+	_pack_detail_pane.visible = true
+
+
+func _ensure_popout_keyboard() -> void:
+	if _kb_layer != null:
+		return
+	# Overlay on the UI viewport root (side panel), above tabs.
+	_kb_layer = Control.new()
+	_kb_layer.name = "KeyboardOverlay"
+	_kb_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_kb_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_kb_layer.visible = false
+	_side_panel.add_child(_kb_layer)
+	_kb_panel = PanelContainer.new()
+	_kb_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_kb_panel.offset_top = -420
+	_kb_panel.offset_left = 12
+	_kb_panel.offset_right = -12
+	_kb_panel.offset_bottom = -12
+	_kb_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.09, 0.12, 0.97)
+	style.border_color = Color(0.35, 0.4, 0.5)
+	style.set_border_width_all(2)
+	style.set_content_margin_all(12)
+	_kb_panel.add_theme_stylebox_override("panel", style)
+	_kb_layer.add_child(_kb_panel)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	_kb_panel.add_child(col)
+	var head := HBoxContainer.new()
+	_kb_title = Label.new()
+	_kb_title.text = "Keyboard"
+	_kb_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_kb_title.add_theme_font_size_override("font_size", 22)
+	head.add_child(_kb_title)
+	head.add_child(_btn("Close", _hide_popout_keyboard))
+	col.add_child(head)
+	var grid := GridContainer.new()
+	grid.columns = 10
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	_keyboard_grid = grid
+	var keys := "1234567890QWERTYUIOPASDFGHJKLZXCVBNM-,"
+	for i in keys.length():
+		var ch := keys.substr(i, 1)
+		var b := Button.new()
+		b.text = ch
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(72, 72)
+		b.add_theme_font_size_override("font_size", 26)
+		b.pressed.connect(func(): _type_into_name(ch))
+		grid.add_child(b)
+	col.add_child(grid)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var space := Button.new()
+	space.text = "Space"
+	space.focus_mode = Control.FOCUS_NONE
+	space.custom_minimum_size = Vector2(0, 72)
+	space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	space.add_theme_font_size_override("font_size", 24)
+	space.pressed.connect(func(): _type_into_name(" "))
+	var bk := Button.new()
+	bk.text = "Bksp"
+	bk.focus_mode = Control.FOCUS_NONE
+	bk.custom_minimum_size = Vector2(140, 72)
+	bk.add_theme_font_size_override("font_size", 24)
+	bk.pressed.connect(_backspace_name)
+	var ent := Button.new()
+	ent.text = "Enter"
+	ent.focus_mode = Control.FOCUS_NONE
+	ent.custom_minimum_size = Vector2(140, 72)
+	ent.add_theme_font_size_override("font_size", 24)
+	ent.pressed.connect(_on_keyboard_enter)
+	row.add_child(space)
+	row.add_child(bk)
+	row.add_child(ent)
+	col.add_child(row)
+
+
+func _show_popout_keyboard(edit: LineEdit, title: String = "Keyboard") -> void:
+	if edit == null:
+		return
+	# Desktop physical keyboard is enough.
+	if not _vr_wide:
+		return
+	_ensure_popout_keyboard()
+	_kb_target = edit
+	if _kb_title:
+		_kb_title.text = title
+	if _kb_layer:
+		_kb_layer.visible = true
+		_kb_layer.move_to_front()
+
+
+func _hide_popout_keyboard() -> void:
+	if _kb_layer:
+		_kb_layer.visible = false
+	_kb_target = null
+
+
+func _on_line_focus_exited() -> void:
+	# Keep keyboard up while pressing its buttons (they use FOCUS_NONE).
+	await get_tree().process_frame
+	if _kb_layer == null or not _kb_layer.visible:
+		return
+	if _kb_target != null and is_instance_valid(_kb_target) and _kb_target.has_focus():
+		return
+	# If focus moved to another LineEdit, that field's focus_entered will retarget.
+	var foc := _ui_viewport.gui_get_focus_owner() if _ui_viewport else null
+	if foc is LineEdit:
+		return
+	_hide_popout_keyboard()
+
+
+func _on_keyboard_enter() -> void:
+	var edit := _kb_target if _kb_target != null else _active_line_edit()
+	if edit:
+		edit.text_submitted.emit(edit.text)
+	_hide_popout_keyboard()
+
+
 func _build_files_load_row() -> HBoxContainer:
 	var load_row := HBoxContainer.new()
 	load_row.add_theme_constant_override("separation", 8)
@@ -372,7 +577,9 @@ func _build_files_column() -> VBoxContainer:
 	_folder_edit = LineEdit.new()
 	_folder_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_folder_edit.placeholder_text = "Folder"
-	_folder_edit.text_submitted.connect(func(text): _set_folder(text))
+	_folder_edit.text_submitted.connect(func(text): _set_folder(text); _hide_popout_keyboard())
+	_folder_edit.focus_entered.connect(func(): _show_popout_keyboard(_folder_edit, "Folder"))
+	_folder_edit.focus_exited.connect(_on_line_focus_exited)
 	folder_row.add_child(_folder_edit)
 	folder_row.add_child(_btn("Up", _go_up))
 	col.add_child(folder_row)
@@ -408,38 +615,21 @@ func _build_files_column() -> VBoxContainer:
 	_tag_filter.text_changed.connect(_on_tag_filter_changed)
 	_tag_filter.text_submitted.connect(func(_t): _apply_tag_filter())
 	_tag_filter.gui_input.connect(_on_tag_filter_gui_input)
-	_tag_filter.focus_entered.connect(_on_tag_filter_focus)
+	_tag_filter.focus_entered.connect(func(): _show_popout_keyboard(_tag_filter, "Tag filter"))
+	_tag_filter.focus_exited.connect(_on_line_focus_exited)
+	_tag_filter.text_submitted.connect(func(_t): _hide_popout_keyboard())
 	col.add_child(_tag_filter)
 	var filter_row := HBoxContainer.new()
 	filter_row.add_child(_btn("Apply filter", _apply_tag_filter))
 	filter_row.add_child(_btn("Clear filter", func(): _tag_filter.text = ""; _apply_tag_filter()))
 	col.add_child(filter_row)
-	_pack_preview = TextureRect.new()
-	_pack_preview.custom_minimum_size = Vector2(0, 140)
-	_pack_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_pack_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_pack_preview.visible = false
-	col.add_child(_pack_preview)
-	_pack_title = Label.new()
-	_pack_title.visible = false
-	_pack_title.add_theme_font_size_override("font_size", 18)
-	_pack_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(_pack_title)
-	_pack_meta_label = Label.new()
-	_pack_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_pack_meta_label.visible = false
-	col.add_child(_pack_meta_label)
-	_options_title = Label.new()
-	_options_title.text = "Options"
-	_options_title.visible = false
-	col.add_child(_options_title)
-	_options_box = VBoxContainer.new()
-	_options_box.add_theme_constant_override("separation", 6)
-	_options_box.visible = false
-	col.add_child(_options_box)
-	_files_keyboard = _build_keyboard()
-	_files_keyboard.visible = false  # 2D has a physical keyboard; VR shows it
-	col.add_child(_files_keyboard)
+	# Pack preview / options live in the side detail pane (_build_pack_detail_pane).
+	_pack_preview = null
+	_pack_title = null
+	_pack_meta_label = null
+	_options_title = null
+	_options_box = null
+	_files_keyboard = null
 
 	_file_list = Tree.new()
 	_file_list.columns = 2
@@ -526,8 +716,10 @@ func _build_scene_column() -> VBoxContainer:
 	_scene_name_edit = LineEdit.new()
 	_scene_name_edit.placeholder_text = "Scene name"
 	_scene_name_edit.custom_minimum_size = Vector2(0, 44)
+	_scene_name_edit.focus_entered.connect(func(): _show_popout_keyboard(_scene_name_edit, "Scene name"))
+	_scene_name_edit.focus_exited.connect(_on_line_focus_exited)
+	_scene_name_edit.text_submitted.connect(func(_t): _hide_popout_keyboard())
 	col.add_child(_scene_name_edit)
-	col.add_child(_build_keyboard())
 	var scene_btns := HBoxContainer.new()
 	scene_btns.add_child(_btn("Save", _save_scene))
 	scene_btns.add_child(_btn("Load", _load_scene))
@@ -866,8 +1058,9 @@ func _apply_ui_mode(wide: bool) -> void:
 		)
 	if _files_load_row:
 		_files_load_row.visible = true
-	if _files_keyboard:
-		_files_keyboard.visible = wide
+	_ensure_popout_keyboard()
+	if not wide:
+		_hide_popout_keyboard()
 	if not wide and _keyboard_grid:
 		_keyboard_grid.visible = false
 	if _status:
@@ -948,12 +1141,9 @@ func _build_keyboard() -> Control:
 
 
 func _on_tag_filter_focus() -> void:
-	if not _vr_wide:
-		return
-	if _files_keyboard:
-		_files_keyboard.visible = true
-	if _keyboard_grid:
-		_keyboard_grid.visible = true
+	_show_popout_keyboard(_tag_filter, "Tag filter")
+
+
 
 
 
@@ -1086,19 +1276,15 @@ func _focus_library_filter() -> void:
 
 
 func _active_line_edit() -> LineEdit:
+	if _kb_target != null and is_instance_valid(_kb_target):
+		return _kb_target
 	if _tag_filter != null and _tag_filter.visible and _tag_filter.has_focus():
 		return _tag_filter
 	if _folder_edit != null and _folder_edit.editable and _folder_edit.has_focus():
 		return _folder_edit
 	if _scene_name_edit != null and _scene_name_edit.has_focus():
 		return _scene_name_edit
-	# Library filter is the usual target when browsing packs.
-	if _library_mode and _tag_filter != null and _tag_filter.visible:
-		return _tag_filter
-	if _folder_edit != null and _folder_edit.editable and _folder_edit.visible:
-		# Prefer scene name when both available and neither focused.
-		pass
-	return _scene_name_edit
+	return null
 
 
 func _type_into_name(ch: String) -> void:
@@ -1107,13 +1293,15 @@ func _type_into_name(ch: String) -> void:
 		return
 	if edit == _folder_edit:
 		_folder_edit.text += ch
+		_folder_edit.caret_column = _folder_edit.text.length()
 		_set_folder(_folder_edit.text)
+		_folder_edit.grab_focus()
 		return
 	edit.text += ch
 	edit.caret_column = edit.text.length()
 	if edit == _tag_filter:
 		_on_tag_filter_changed(edit.text)
-		edit.grab_focus()
+	edit.grab_focus()
 
 
 func _backspace_name() -> void:
@@ -1203,19 +1391,9 @@ func _set_view_mode(library: bool) -> void:
 		_library_check.set_pressed_no_signal(library)
 	if _tag_filter:
 		_tag_filter.visible = library
-	if _pack_preview:
-		_pack_preview.visible = library
-	if _pack_meta_label:
-		_pack_meta_label.visible = library
-	if _pack_title:
-		_pack_title.visible = library and _pack_title.text != ""
-	if _options_title:
-		_options_title.visible = library
-	if _options_box:
-		_options_box.visible = library
-		if not library:
-			_clear_options_ui()
-			_selected_pack = null
+	# Pack detail pane opens on selection; do not grow the list column.
+	if not library:
+		_close_pack_detail()
 	if _btn_add_pack:
 		_btn_add_pack.text = "Add pack" if library else "Add pack / files"
 	if _btn_add_all:
@@ -1245,15 +1423,11 @@ func _set_view_mode(library: bool) -> void:
 func _show_pack_preview(pack: LibraryPack) -> void:
 	_selected_pack = pack
 	_rebuild_options_ui(pack)
-	if _pack_preview == null:
-		return
 	if pack == null:
-		_pack_preview.texture = null
-		if _pack_title:
-			_pack_title.text = ""
-			_pack_title.visible = false
-		if _pack_meta_label:
-			_pack_meta_label.text = ""
+		_close_pack_detail()
+		return
+	_open_pack_detail()
+	if _pack_preview == null:
 		return
 	var tex: Texture2D = null
 	for rel in pack.previews:
@@ -1599,6 +1773,7 @@ func _load_library_pack(pack: LibraryPack) -> void:
 		_assembly.ground_parts_from_index(start_n)
 	var gname := pack.display_name if pack.display_name != "" else pack.pack_id
 	_assembly.create_link_group_from_index(start_n, gname)
+	_assembly.capture_spawn_poses(start_n)
 	_refresh_parts_list()
 	if not _xr.xr_active:
 		_camera.frame_aabb(_assembly.world_aabb())
@@ -1622,6 +1797,7 @@ func _load_paths(paths: PackedStringArray) -> void:
 	if _assembly.keep_shared_origin and _assembly.parts.size() > start_n:
 		var gname := "Group %s" % _assembly._next_link_id
 		_assembly.create_link_group_from_index(start_n, gname)
+		_assembly.capture_spawn_poses(start_n)
 	_refresh_parts_list()
 	if not _xr.xr_active:
 		_camera.frame_aabb(_assembly.world_aabb())
