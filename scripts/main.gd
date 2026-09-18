@@ -1,9 +1,18 @@
 extends Node
 
 const SETTINGS_PATH := "user://viewer.cfg"
-const PANEL_WIDTH := 520.0
-const UI_DESKTOP := Vector2i(520, 1120)
+const PANEL_WIDTH := 720.0
+const UI_DESKTOP := Vector2i(720, 1600)
 const UI_VR := Vector2i(1920, 1480)
+
+# Single knob for VR chrome. 2.0 ≈ double desktop hit targets (usable).
+# Dial toward 1.0 to regress toward desktop sizes without another rewrite.
+# Previous 3–4× attempt (~150px buttons) hid controls / half the keyboard.
+const VR_UI_SCALE := 2.0
+const VR_BTN_BASE := 40.0
+const VR_FONT_BASE := 16.0
+const VR_SLIDER_BASE := 28.0
+const VR_TAB_FONT_MULT := 1.4  # tabs stay chunkier than body buttons
 
 var _world: Node3D
 var _stage: EnvironmentStage
@@ -40,6 +49,27 @@ var _splat_list: ItemList
 var _splat_folder := ""
 var _splat_folder_label: Label
 var _col_files: VBoxContainer
+var _col_modify: VBoxContainer
+var _col_scene: VBoxContainer
+var _col_world: VBoxContainer
+var _tabs: TabContainer
+var _files_page: VBoxContainer
+var _files_scroll: ScrollContainer
+var _files_load_row: HBoxContainer
+var _files_body_row: HBoxContainer
+var _pack_detail_pane: PanelContainer
+var _pack_detail_inner: VBoxContainer
+var _btn_close_pack_detail: Button
+var _kb_layer: Control
+var _kb_panel: PanelContainer
+var _kb_target: LineEdit
+var _kb_title: Label
+var _tab_scrolls: Array = []
+var _parts_list: ItemList
+var _parts_status: Label
+var _btn_unlink: Button
+var _btn_relink: Button
+var _btn_delete_part: Button
 var _col_tools: VBoxContainer
 var _wide_row: HBoxContainer
 var _narrow_stack: VBoxContainer
@@ -105,8 +135,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_set_vr(not _xr.xr_active)
 				get_viewport().set_input_as_handled()
 			KEY_R:
-				_assembly.return_to_origin()
-				_camera.frame_aabb(_assembly.world_aabb())
+				_on_return_to_origin()
 				get_viewport().set_input_as_handled()
 
 
@@ -222,41 +251,59 @@ func _build_ui() -> void:
 
 	shell.add_child(_build_header())
 
+	# Compat stubs — tabs replace the old dual-column layout.
 	_wide_row = HBoxContainer.new()
-	_wide_row.add_theme_constant_override("separation", 12)
-	_wide_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_wide_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_wide_row.visible = false
-	shell.add_child(_wide_row)
-
 	_vr_gutter = ColorRect.new()
-	_vr_gutter.color = Color(0.22, 0.24, 0.28, 1.0)
-	_vr_gutter.custom_minimum_size = Vector2(1, 0)
-	_vr_gutter.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_wide_row.add_child(_vr_gutter)
-
 	_tools_scroll = ScrollContainer.new()
-	_tools_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_tools_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_tools_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_tools_scroll.size_flags_stretch_ratio = 1.0
-	_wide_row.add_child(_tools_scroll)
-
 	_desktop_scroll = ScrollContainer.new()
-	_desktop_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_desktop_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_desktop_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	shell.add_child(_desktop_scroll)
-
+	_desktop_scroll.visible = false
 	_narrow_stack = VBoxContainer.new()
-	_narrow_stack.add_theme_constant_override("separation", 10)
-	_narrow_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_desktop_scroll.add_child(_narrow_stack)
 
+	_tabs = TabContainer.new()
+	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
+	shell.add_child(_tabs)
+	_tab_scrolls.clear()
+
+	# Files: list stays stable; pack details open in a side pane (does not grow the list).
+	_files_page = VBoxContainer.new()
+	_files_page.name = "Files"
+	_files_page.add_theme_constant_override("separation", 8)
+	_files_page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_files_body_row = HBoxContainer.new()
+	_files_body_row.add_theme_constant_override("separation", 10)
+	_files_body_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_files_body_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_scroll = ScrollContainer.new()
+	_files_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_files_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_scroll.size_flags_stretch_ratio = 1.15
+	_files_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_col_files = _build_files_column()
-	_col_tools = _build_tools_column()
-	_narrow_stack.add_child(_col_files)
-	_narrow_stack.add_child(_col_tools)
+	_col_files.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_files_scroll.add_child(_col_files)
+	_files_body_row.add_child(_files_scroll)
+	_pack_detail_pane = _build_pack_detail_pane()
+	_files_body_row.add_child(_pack_detail_pane)
+	_files_page.add_child(_files_body_row)
+	_files_load_row = _build_files_load_row()
+	_files_page.add_child(_files_load_row)
+	_tabs.add_child(_files_page)
+	_tab_scrolls.append(_files_scroll)
+
+	_col_modify = _build_modify_column()
+	_tabs.add_child(_wrap_tab_scroll("Modify", _col_modify))
+
+	_col_scene = _build_scene_column()
+	_tabs.add_child(_wrap_tab_scroll("Scene", _col_scene))
+
+	_col_world = _build_world_column()
+	_tabs.add_child(_wrap_tab_scroll("World", _col_world))
+
+	_col_tools = _col_world
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -276,6 +323,9 @@ func _build_ui() -> void:
 	_ui.add_child(_file_dialog)
 
 	_apply_ui_mode(false)
+	_fit_desktop_viewport()
+	if _assembly and not _assembly.changed.is_connected(_refresh_parts_list):
+		_assembly.changed.connect(_refresh_parts_list)
 
 
 func _build_header() -> Control:
@@ -298,6 +348,271 @@ func _build_header() -> Control:
 	return header
 
 
+
+func _wrap_tab_scroll(tab_name: String, body: Control) -> ScrollContainer:
+	var sc := ScrollContainer.new()
+	sc.name = tab_name
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(body)
+	_tab_scrolls.append(sc)
+	return sc
+
+
+
+func _build_pack_detail_pane() -> PanelContainer:
+	var pane := PanelContainer.new()
+	pane.visible = false
+	pane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pane.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pane.size_flags_stretch_ratio = 0.95
+	pane.custom_minimum_size = Vector2(280, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.12, 0.14, 0.18, 1.0)
+	style.set_content_margin_all(10)
+	pane.add_theme_stylebox_override("panel", style)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pane.add_child(sc)
+	_pack_detail_inner = VBoxContainer.new()
+	_pack_detail_inner.add_theme_constant_override("separation", 8)
+	_pack_detail_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_pack_detail_inner)
+	var head := HBoxContainer.new()
+	var ttl := Label.new()
+	ttl.text = "Pack detail"
+	ttl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ttl.add_theme_font_size_override("font_size", 18)
+	head.add_child(ttl)
+	_btn_close_pack_detail = _btn("Close", _close_pack_detail)
+	head.add_child(_btn_close_pack_detail)
+	_pack_detail_inner.add_child(head)
+	_pack_preview = TextureRect.new()
+	_pack_preview.custom_minimum_size = Vector2(0, 180)
+	_pack_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_pack_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_pack_detail_inner.add_child(_pack_preview)
+	_pack_title = Label.new()
+	_pack_title.add_theme_font_size_override("font_size", 20)
+	_pack_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pack_detail_inner.add_child(_pack_title)
+	_pack_meta_label = Label.new()
+	_pack_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pack_detail_inner.add_child(_pack_meta_label)
+	_options_title = Label.new()
+	_options_title.text = "Options"
+	_pack_detail_inner.add_child(_options_title)
+	_options_box = VBoxContainer.new()
+	_options_box.add_theme_constant_override("separation", 8)
+	_pack_detail_inner.add_child(_options_box)
+	return pane
+
+
+func _close_pack_detail() -> void:
+	_selected_pack = null
+	_clear_options_ui()
+	if _pack_detail_pane:
+		_pack_detail_pane.visible = false
+	if _pack_preview:
+		_pack_preview.texture = null
+	if _pack_title:
+		_pack_title.text = ""
+	if _pack_meta_label:
+		_pack_meta_label.text = ""
+
+
+func _open_pack_detail() -> void:
+	if _pack_detail_pane == null:
+		return
+	_pack_detail_pane.visible = true
+
+
+func _ensure_popout_keyboard() -> void:
+	if _kb_layer != null:
+		return
+	_kb_layer = Control.new()
+	_kb_layer.name = "KeyboardOverlay"
+	_kb_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_kb_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_kb_layer.visible = false
+	_side_panel.add_child(_kb_layer)
+	_kb_panel = PanelContainer.new()
+	_kb_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.09, 0.12, 0.98)
+	style.border_color = Color(0.45, 0.55, 0.7)
+	style.set_border_width_all(3)
+	style.set_content_margin_all(16)
+	_kb_panel.add_theme_stylebox_override("panel", style)
+	_kb_layer.add_child(_kb_panel)
+	_rebuild_popout_keyboard_if_needed()
+
+
+func _rebuild_popout_keyboard_if_needed() -> void:
+	if _kb_panel == null:
+		return
+	# Clear prior chrome.
+	for c in _kb_panel.get_children():
+		_kb_panel.remove_child(c)
+		c.free()
+	var vp_h := 1480
+	var vp_w := 1920
+	if _ui_viewport:
+		vp_h = _ui_viewport.size.y
+		vp_w = _ui_viewport.size.x
+	# Tall overlay; keys sized from VR_UI_SCALE so all letters fit (scroll as backup).
+	_kb_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_kb_panel.anchor_top = 0.18
+	_kb_panel.offset_top = 0
+	_kb_panel.offset_left = 8
+	_kb_panel.offset_right = -8
+	_kb_panel.offset_bottom = -8
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_kb_panel.add_child(col)
+	var head := HBoxContainer.new()
+	_kb_title = Label.new()
+	_kb_title.text = "Keyboard"
+	_kb_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var kb_font := _vr_font()
+	var kb_btn := int(round(_vr_btn_h()))
+	_kb_title.add_theme_font_size_override("font_size", kb_font + 4)
+	head.add_child(_kb_title)
+	var close_b := Button.new()
+	close_b.text = "Close"
+	close_b.focus_mode = Control.FOCUS_NONE
+	close_b.custom_minimum_size = Vector2(maxi(160, kb_btn * 2), kb_btn)
+	close_b.add_theme_font_size_override("font_size", kb_font)
+	close_b.pressed.connect(_hide_popout_keyboard)
+	head.add_child(close_b)
+	col.add_child(head)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	col.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 10
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_keyboard_grid = grid
+	scroll.add_child(grid)
+	# Fit ~10 columns across; clamp so keys stay pointer-friendly but do not erase rows.
+	var key_px := 64.0 * VR_UI_SCALE
+	if vp_w > 0:
+		key_px = minf(key_px, float(vp_w - 80) / 11.0)
+	key_px = clampf(key_px, 48.0, 96.0)
+	var keys := "1234567890QWERTYUIOPASDFGHJKLZXCVBNM-,"
+	for i in keys.length():
+		var ch := keys.substr(i, 1)
+		var b := Button.new()
+		b.text = ch
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(key_px, key_px)
+		b.add_theme_font_size_override("font_size", kb_font)
+		# bind avoids loop-capture bugs so each key types its own character
+		b.pressed.connect(_type_into_name.bind(ch))
+		grid.add_child(b)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var space := Button.new()
+	space.text = "Space"
+	space.focus_mode = Control.FOCUS_NONE
+	space.custom_minimum_size = Vector2(0, kb_btn)
+	space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	space.add_theme_font_size_override("font_size", kb_font)
+	space.pressed.connect(_type_into_name.bind(" "))
+	var bk := Button.new()
+	bk.text = "Bksp"
+	bk.focus_mode = Control.FOCUS_NONE
+	bk.custom_minimum_size = Vector2(maxi(140, kb_btn * 2), kb_btn)
+	bk.add_theme_font_size_override("font_size", kb_font)
+	bk.pressed.connect(_backspace_name)
+	var ent := Button.new()
+	ent.text = "Enter"
+	ent.focus_mode = Control.FOCUS_NONE
+	ent.custom_minimum_size = Vector2(maxi(140, kb_btn * 2), kb_btn)
+	ent.add_theme_font_size_override("font_size", kb_font)
+	ent.pressed.connect(_on_keyboard_enter)
+	row.add_child(space)
+	row.add_child(bk)
+	row.add_child(ent)
+	col.add_child(row)
+
+
+
+func _show_popout_keyboard(edit: LineEdit, title: String = "Keyboard") -> void:
+	if edit == null:
+		return
+	if not _vr_wide:
+		return
+	_ensure_popout_keyboard()
+	_rebuild_popout_keyboard_if_needed()
+	_kb_target = edit
+	if _kb_title:
+		_kb_title.text = title
+	if _kb_layer:
+		_kb_layer.visible = true
+		_kb_layer.move_to_front()
+
+
+func _hide_popout_keyboard() -> void:
+	if _kb_layer:
+		_kb_layer.visible = false
+	_kb_target = null
+
+
+func _on_line_focus_exited() -> void:
+	# Keep keyboard up while pressing its buttons (they use FOCUS_NONE).
+	await get_tree().process_frame
+	if _kb_layer == null or not _kb_layer.visible:
+		return
+	if _kb_target != null and is_instance_valid(_kb_target) and _kb_target.has_focus():
+		return
+	# If focus moved to another LineEdit, that field's focus_entered will retarget.
+	var foc := _ui_viewport.gui_get_focus_owner() if _ui_viewport else null
+	if foc is LineEdit:
+		return
+	_hide_popout_keyboard()
+
+
+func _on_keyboard_enter() -> void:
+	var edit := _kb_target if _kb_target != null else _active_line_edit()
+	if edit:
+		edit.text_submitted.emit(edit.text)
+	_hide_popout_keyboard()
+
+
+func _build_files_load_row() -> HBoxContainer:
+	var load_row := HBoxContainer.new()
+	load_row.add_theme_constant_override("separation", 8)
+	_btn_add_pack = _btn("Add pack / files", _load_selected)
+	_btn_add_pack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	load_row.add_child(_btn_add_pack)
+	_btn_add_all = _btn("Add all", _load_all)
+	load_row.add_child(_btn_add_all)
+	load_row.add_child(_btn("Clear", func(): _assembly.clear(); _refresh_parts_list()))
+	return load_row
+
+
+func _fit_desktop_viewport() -> void:
+	## Match UI SubViewport height to the game window so 2D isn't a tiny fixed canvas.
+	if _ui_viewport == null or _vr_wide:
+		return
+	var win_h := int(get_window().size.y)
+	var h := clampi(win_h, 960, 2000)
+	var w := int(PANEL_WIDTH)
+	if _ui_viewport.size.x != w or _ui_viewport.size.y != h:
+		_ui_viewport.size = Vector2i(w, h)
+	if _desktop_host:
+		_desktop_host.offset_right = PANEL_WIDTH
+
+
 func _build_files_column() -> VBoxContainer:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 8)
@@ -309,7 +624,9 @@ func _build_files_column() -> VBoxContainer:
 	_folder_edit = LineEdit.new()
 	_folder_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_folder_edit.placeholder_text = "Folder"
-	_folder_edit.text_submitted.connect(func(text): _set_folder(text))
+	_folder_edit.text_submitted.connect(func(text): _set_folder(text); _hide_popout_keyboard())
+	_folder_edit.focus_entered.connect(func(): _show_popout_keyboard(_folder_edit, "Folder"))
+	_folder_edit.focus_exited.connect(_on_line_focus_exited)
 	folder_row.add_child(_folder_edit)
 	folder_row.add_child(_btn("Up", _go_up))
 	col.add_child(folder_row)
@@ -345,38 +662,21 @@ func _build_files_column() -> VBoxContainer:
 	_tag_filter.text_changed.connect(_on_tag_filter_changed)
 	_tag_filter.text_submitted.connect(func(_t): _apply_tag_filter())
 	_tag_filter.gui_input.connect(_on_tag_filter_gui_input)
-	_tag_filter.focus_entered.connect(_on_tag_filter_focus)
+	_tag_filter.focus_entered.connect(func(): _show_popout_keyboard(_tag_filter, "Tag filter"))
+	_tag_filter.focus_exited.connect(_on_line_focus_exited)
+	_tag_filter.text_submitted.connect(func(_t): _hide_popout_keyboard())
 	col.add_child(_tag_filter)
 	var filter_row := HBoxContainer.new()
 	filter_row.add_child(_btn("Apply filter", _apply_tag_filter))
 	filter_row.add_child(_btn("Clear filter", func(): _tag_filter.text = ""; _apply_tag_filter()))
 	col.add_child(filter_row)
-	_pack_preview = TextureRect.new()
-	_pack_preview.custom_minimum_size = Vector2(0, 140)
-	_pack_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_pack_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_pack_preview.visible = false
-	col.add_child(_pack_preview)
-	_pack_title = Label.new()
-	_pack_title.visible = false
-	_pack_title.add_theme_font_size_override("font_size", 18)
-	_pack_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(_pack_title)
-	_pack_meta_label = Label.new()
-	_pack_meta_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_pack_meta_label.visible = false
-	col.add_child(_pack_meta_label)
-	_options_title = Label.new()
-	_options_title.text = "Options"
-	_options_title.visible = false
-	col.add_child(_options_title)
-	_options_box = VBoxContainer.new()
-	_options_box.add_theme_constant_override("separation", 6)
-	_options_box.visible = false
-	col.add_child(_options_box)
-	_files_keyboard = _build_keyboard()
-	_files_keyboard.visible = false  # 2D has a physical keyboard; VR shows it
-	col.add_child(_files_keyboard)
+	# Pack preview / options live in the side detail pane (_build_pack_detail_pane).
+	_pack_preview = null
+	_pack_title = null
+	_pack_meta_label = null
+	_options_title = null
+	_options_box = null
+	_files_keyboard = null
 
 	_file_list = Tree.new()
 	_file_list.columns = 2
@@ -396,26 +696,20 @@ func _build_files_column() -> VBoxContainer:
 	_file_list.item_mouse_selected.connect(_on_file_mouse_selected)
 	col.add_child(_file_list)
 
-	var load_row := HBoxContainer.new()
-	_btn_add_pack = _btn("Add pack / files", _load_selected)
-	load_row.add_child(_btn_add_pack)
-	_btn_add_all = _btn("Add all", _load_all)
-	load_row.add_child(_btn_add_all)
-	load_row.add_child(_btn("Clear", func(): _assembly.clear()))
-	col.add_child(load_row)
+	# Load / Clear live in the sticky footer outside the scroll (_build_files_load_row).
+	return col
 
-	_btn_recenter_board = _btn("Recenter board", _raise_vr_board)
-	_btn_recenter_board.visible = false
-	col.add_child(_btn_recenter_board)
-	_origin_check = CheckBox.new()
-	_origin_check.text = "Assemble by shared origin"
-	_origin_check.button_pressed = false
-	_origin_check.toggled.connect(func(v): _assembly.keep_shared_origin = v)
-	col.add_child(_origin_check)
 
+func _build_modify_column() -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	col.add_child(_section("Size"))
 	var scale_row := HBoxContainer.new()
 	_scale_label = Label.new()
-	_scale_label.custom_minimum_size.x = 90
+	_scale_label.custom_minimum_size.x = 110
 	_scale_label.text = "Size 100%"
 	scale_row.add_child(_scale_label)
 	_scale_slider = HSlider.new()
@@ -424,37 +718,74 @@ func _build_files_column() -> VBoxContainer:
 	_scale_slider.step = 10
 	_scale_slider.value = 100
 	_scale_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scale_slider.custom_minimum_size = Vector2(0, 36)
 	_scale_slider.value_changed.connect(_on_scale_slider)
 	scale_row.add_child(_scale_slider)
 	col.add_child(scale_row)
-	col.add_child(_btn("Return to origin", func(): _assembly.return_to_origin(); _camera.frame_aabb(_assembly.world_aabb())))
+	col.add_child(_btn("Return to origin", _on_return_to_origin))
+
+	col.add_child(_sep())
+	col.add_child(_build_color_editor())
+
+	col.add_child(_sep())
+	col.add_child(_section("Parts / groups"))
+	_parts_status = Label.new()
+	_parts_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_parts_status.text = "Load a pack to create a linked group (shared origin)."
+	col.add_child(_parts_status)
+	_parts_list = ItemList.new()
+	_parts_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_parts_list.custom_minimum_size = Vector2(0, 220)
+	_parts_list.add_theme_font_size_override("font_size", 16)
+	col.add_child(_parts_list)
+	var prow := HBoxContainer.new()
+	_btn_unlink = _btn("Unlink", _on_unlink_part)
+	_btn_relink = _btn("Link", _on_relink_part)
+	_btn_delete_part = _btn("Delete part", _on_delete_part)
+	prow.add_child(_btn_unlink)
+	prow.add_child(_btn_relink)
+	prow.add_child(_btn_delete_part)
+	col.add_child(prow)
+	_origin_check = CheckBox.new()
+	_origin_check.text = "Classic: assemble by shared origin"
+	_origin_check.button_pressed = false
+	_origin_check.toggled.connect(func(v): _assembly.keep_shared_origin = v)
+	col.add_child(_origin_check)
 	return col
 
 
-func _build_tools_column() -> VBoxContainer:
+func _build_scene_column() -> VBoxContainer:
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 10)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.size_flags_stretch_ratio = 1.0
-
 	col.add_child(_section("Scenes"))
 	_scene_name_edit = LineEdit.new()
 	_scene_name_edit.placeholder_text = "Scene name"
+	_scene_name_edit.custom_minimum_size = Vector2(0, 44)
+	_scene_name_edit.focus_entered.connect(func(): _show_popout_keyboard(_scene_name_edit, "Scene name"))
+	_scene_name_edit.focus_exited.connect(_on_line_focus_exited)
+	_scene_name_edit.text_submitted.connect(func(_t): _hide_popout_keyboard())
 	col.add_child(_scene_name_edit)
-	col.add_child(_build_keyboard())
 	var scene_btns := HBoxContainer.new()
 	scene_btns.add_child(_btn("Save", _save_scene))
 	scene_btns.add_child(_btn("Load", _load_scene))
 	scene_btns.add_child(_btn("Delete", _delete_scene))
 	col.add_child(scene_btns)
 	_scene_list = ItemList.new()
-	_scene_list.custom_minimum_size = Vector2(0, 88)
+	_scene_list.custom_minimum_size = Vector2(0, 200)
+	_scene_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scene_list.item_selected.connect(func(i): _scene_name_edit.text = _scene_list.get_item_text(i))
 	col.add_child(_scene_list)
 	_refresh_scene_list()
+	return col
 
-	col.add_child(_sep())
+
+func _build_world_column() -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(_section("Environment"))
 	col.add_child(_build_env_radios())
 	col.add_child(_build_splat_section())
@@ -462,10 +793,11 @@ func _build_tools_column() -> VBoxContainer:
 	var light_row := HBoxContainer.new()
 	var light_name := Label.new()
 	light_name.text = "Lighting"
-	light_name.custom_minimum_size.x = 72
+	light_name.custom_minimum_size.x = 90
 	light_row.add_child(light_name)
 	_light_option = OptionButton.new()
 	_light_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_light_option.custom_minimum_size = Vector2(0, 44)
 	_light_option.item_selected.connect(_on_light_selected)
 	light_row.add_child(_light_option)
 	col.add_child(light_row)
@@ -473,7 +805,7 @@ func _build_tools_column() -> VBoxContainer:
 
 	var dim_row := HBoxContainer.new()
 	_dimmer_label = Label.new()
-	_dimmer_label.custom_minimum_size.x = 120
+	_dimmer_label.custom_minimum_size.x = 130
 	_dimmer_label.text = "Light 1.00x"
 	dim_row.add_child(_dimmer_label)
 	_dimmer_slider = HSlider.new()
@@ -482,6 +814,7 @@ func _build_tools_column() -> VBoxContainer:
 	_dimmer_slider.step = 0.01
 	_dimmer_slider.value = 1.0
 	_dimmer_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dimmer_slider.custom_minimum_size = Vector2(0, 36)
 	_dimmer_slider.value_changed.connect(_on_dimmer)
 	dim_row.add_child(_dimmer_slider)
 	col.add_child(dim_row)
@@ -497,6 +830,7 @@ func _build_tools_column() -> VBoxContainer:
 	surround_s.step = 0.05
 	surround_s.value = 0.28
 	surround_s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	surround_s.custom_minimum_size = Vector2(0, 36)
 	surround_s.value_changed.connect(func(v): _stage.set_surround(v))
 	surround_row.add_child(surround_s)
 	col.add_child(surround_row)
@@ -512,19 +846,26 @@ func _build_tools_column() -> VBoxContainer:
 	contrast_s.step = 0.05
 	contrast_s.value = 1.15
 	contrast_s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	contrast_s.custom_minimum_size = Vector2(0, 36)
 	contrast_s.value_changed.connect(func(v): _stage.set_contrast(v))
 	contrast_row.add_child(contrast_s)
 	col.add_child(contrast_row)
 
-	col.add_child(_sep())
-	col.add_child(_build_color_editor())
+	_btn_recenter_board = _btn("Recenter board", _raise_vr_board)
+	_btn_recenter_board.visible = false
+	col.add_child(_btn_recenter_board)
 
 	var help := Label.new()
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.modulate = Color(0.55, 0.58, 0.64)
-	help.text = "VR â€” Index\nA: raise this board\nTrigger on board: click UI\nTrigger near a model: grab that model\nBoth triggers near a model: scale it\nLeft stick: walk   Right stick: turn\n\nDesktop: MMB orbit, wheel zoom, RMB+WASD fly"
+	help.text = "VR: A raises this board. Trigger clicks UI or grabs a linked group / free part. Both triggers scale. Stick walks / turns."
 	col.add_child(help)
 	return col
+
+
+func _build_tools_column() -> VBoxContainer:
+	# Compat shim — World tab owns env/lighting now.
+	return _build_world_column()
 
 
 func _build_env_radios() -> Control:
@@ -701,73 +1042,97 @@ func _apply_tint(color: Color, close_mixer: bool) -> void:
 		_close_color_mixer()
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_SIZE_CHANGED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		if not _vr_wide:
+			_fit_desktop_viewport()
+
+
+
+func _vr_btn_h() -> float:
+	return VR_BTN_BASE * VR_UI_SCALE
+
+
+func _vr_font() -> int:
+	return maxi(int(round(VR_FONT_BASE * VR_UI_SCALE)), 14)
+
+
+func _vr_slider_h() -> float:
+	return VR_SLIDER_BASE * VR_UI_SCALE
+
+
+func _vr_tab_font() -> int:
+	return maxi(int(round(VR_FONT_BASE * VR_UI_SCALE * VR_TAB_FONT_MULT)), 18)
+
+
 func _apply_ui_mode(wide: bool) -> void:
-	if _ui_viewport == null or _col_files == null:
+	if _ui_viewport == null or _tabs == null:
 		return
-	_ui_viewport.size = UI_VR if wide else UI_DESKTOP
 	_vr_wide = wide
 	if wide:
-		_reparent_ui(_col_files, _wide_row)
-		_wide_row.move_child(_col_files, 0)
-		_reparent_ui(_vr_gutter, _wide_row)
-		_wide_row.move_child(_vr_gutter, 1)
-		_reparent_ui(_tools_scroll, _wide_row)
-		_wide_row.move_child(_tools_scroll, 2)
-		_reparent_ui(_col_tools, _tools_scroll)
-		_wide_row.visible = true
-		_desktop_scroll.visible = false
-		_col_files.size_flags_stretch_ratio = 1.35
-		_tools_scroll.size_flags_stretch_ratio = 0.9
-		_tools_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_tools_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_file_list.custom_minimum_size = Vector2(0, 360)
-		_file_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		_file_list.add_theme_font_size_override("font_size", 18)
-		_scene_list.custom_minimum_size = Vector2(0, 90)
-		if _splat_list:
-			_splat_list.custom_minimum_size = Vector2(0, 140)
-		if _pack_preview:
-			_pack_preview.custom_minimum_size = Vector2(0, 200)
-		if _tag_filter:
-			_tag_filter.custom_minimum_size = Vector2(0, 44)
-			_tag_filter.add_theme_font_size_override("font_size", 18)
-		if _btn_add_pack:
-			_btn_add_pack.custom_minimum_size = Vector2(0, 52)
-			_btn_add_pack.add_theme_font_size_override("font_size", 18)
-		if _btn_recenter_board:
-			_btn_recenter_board.visible = true
-		if _status:
-			_status.add_theme_font_size_override("font_size", 16)
+		_ui_viewport.size = UI_VR
 	else:
-		_reparent_ui(_col_files, _narrow_stack)
-		_reparent_ui(_col_tools, _narrow_stack)
-		_wide_row.visible = false
-		_desktop_scroll.visible = true
-		if _tools_scroll:
-			_tools_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-			_tools_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_file_list.custom_minimum_size = Vector2(0, 260)
-		_file_list.add_theme_font_size_override("font_size", 16)
-		_scene_list.custom_minimum_size = Vector2(0, 88)
-		if _splat_list:
-			_splat_list.custom_minimum_size = Vector2(0, 140)
-		if _pack_preview:
-			_pack_preview.custom_minimum_size = Vector2(0, 140)
-		if _tag_filter:
-			_tag_filter.custom_minimum_size = Vector2(0, 0)
-			_tag_filter.add_theme_font_size_override("font_size", 16)
-		if _btn_add_pack:
-			_btn_add_pack.custom_minimum_size = Vector2(0, 40)
-			_btn_add_pack.add_theme_font_size_override("font_size", 16)
-		if _btn_recenter_board:
-			_btn_recenter_board.visible = false
-		if _keyboard_grid:
-			_keyboard_grid.visible = false
-		if _desktop_host:
-			_desktop_host.offset_right = PANEL_WIDTH
-	if _files_keyboard:
-		# On-screen keyboard is for VR only; desktop uses the physical keyboard.
-		_files_keyboard.visible = wide
+		_fit_desktop_viewport()
+	if _desktop_host:
+		_desktop_host.offset_right = PANEL_WIDTH
+		_desktop_host.visible = not wide
+	var btn_h := int(round(_vr_btn_h())) if wide else 44
+	var font_vr := _vr_font() if wide else 16
+	var slider_h := _vr_slider_h() if wide else 36.0
+	# Lists grow gently with scale so chrome does not shove controls off-board.
+	var list_h := int(round(280.0 + 80.0 * VR_UI_SCALE)) if wide else 180
+	var preview_h := int(round(120.0 + 40.0 * VR_UI_SCALE)) if wide else 120
+	if _file_list:
+		_file_list.custom_minimum_size = Vector2(0, list_h)
+		_file_list.add_theme_font_size_override("font_size", font_vr)
+	if _parts_list:
+		_parts_list.custom_minimum_size = Vector2(0, int(round(200.0 + 60.0 * VR_UI_SCALE)) if wide else 200)
+		_parts_list.add_theme_font_size_override("font_size", font_vr)
+	if _scene_list:
+		_scene_list.custom_minimum_size = Vector2(0, int(round(160.0 + 50.0 * VR_UI_SCALE)) if wide else 160)
+	if _splat_list:
+		_splat_list.custom_minimum_size = Vector2(0, int(round(140.0 + 40.0 * VR_UI_SCALE)) if wide else 140)
+	if _pack_preview:
+		_pack_preview.custom_minimum_size = Vector2(0, preview_h)
+	if _tag_filter:
+		_tag_filter.custom_minimum_size = Vector2(0, btn_h if wide else 0)
+		_tag_filter.add_theme_font_size_override("font_size", font_vr)
+	if _btn_add_pack:
+		_btn_add_pack.custom_minimum_size = Vector2(0, btn_h)
+		_btn_add_pack.add_theme_font_size_override("font_size", font_vr)
+	_apply_file_list_columns()
+	if wide:
+		_bulk_vr_chrome(_col_modify, float(btn_h), font_vr, slider_h)
+		_bulk_vr_chrome(_col_scene, float(btn_h), font_vr, slider_h)
+		_bulk_vr_chrome(_col_world, float(btn_h), font_vr, slider_h)
+		_bulk_vr_chrome(_col_files, float(btn_h), font_vr, slider_h)
+		if _pack_detail_pane:
+			_bulk_vr_chrome(_pack_detail_pane, float(btn_h), font_vr, slider_h)
+		if _files_load_row:
+			_bulk_vr_chrome(_files_load_row, float(btn_h), font_vr, slider_h)
+		_rebuild_popout_keyboard_if_needed()
+	if _btn_recenter_board:
+		_btn_recenter_board.visible = wide
+	# Desktop tabs scroll; VR board is sized to fit so keep scroll off when possible.
+	for sc in _tab_scrolls:
+		if sc is ScrollContainer:
+			# Files can stay tight; other tabs may need a little scroll after control upscale.
+			sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	if _files_scroll:
+		# Always allow scroll so oversized chrome never eats controls.
+		_files_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	if _files_load_row:
+		_files_load_row.visible = true
+	_ensure_popout_keyboard()
+	if not wide:
+		_hide_popout_keyboard()
+	if not wide and _keyboard_grid:
+		_keyboard_grid.visible = false
+	if _status:
+		_status.add_theme_font_size_override("font_size", 16 if wide else 14)
+	if _tabs:
+		# Applied last so it is not stomped; tabs stay bigger than body buttons in VR.
+		_tabs.add_theme_font_size_override("font_size", _vr_tab_font() if wide else 16)
 	if _xr and _xr.board:
 		_xr.board.use_viewport(_ui_viewport)
 
@@ -795,8 +1160,8 @@ func _sep() -> HSeparator:
 func _btn(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(0, 40)
-	b.add_theme_font_size_override("font_size", 16)
+	b.custom_minimum_size = Vector2(0, int(round(_vr_btn_h())) if _vr_wide else 40)
+	b.add_theme_font_size_override("font_size", _vr_font() if _vr_wide else 16)
 	b.pressed.connect(cb)
 	return b
 
@@ -842,12 +1207,137 @@ func _build_keyboard() -> Control:
 
 
 func _on_tag_filter_focus() -> void:
-	if not _vr_wide:
+	_show_popout_keyboard(_tag_filter, "Tag filter")
+
+
+
+
+
+func _refresh_parts_list() -> void:
+	if _parts_list == null:
 		return
-	if _files_keyboard:
-		_files_keyboard.visible = true
-	if _keyboard_grid:
-		_keyboard_grid.visible = true
+	_parts_list.clear()
+	var rows: Array = _assembly.list_part_rows()
+	for row in rows:
+		var mark := "[L]" if bool(row.get("linked", false)) else "[ ]"
+		var g := str(row.get("group_name", ""))
+		var label := "%s %s" % [mark, str(row.get("name", "part"))]
+		if g != "":
+			label += "  -  %s" % g
+		_parts_list.add_item(label)
+		_parts_list.set_item_metadata(_parts_list.item_count - 1, row.get("part"))
+	if _parts_status:
+		var n := rows.size()
+		var linked_n := 0
+		for row2 in rows:
+			if bool(row2.get("linked", false)):
+				linked_n += 1
+		_parts_status.text = "%s part%s - %s linked. Unlink to move/delete alone; Link keeps current pose." % [
+			n, "" if n == 1 else "s", linked_n
+		]
+
+
+func _selected_part_from_list() -> Node3D:
+	if _parts_list == null or _parts_list.get_selected_items().is_empty():
+		return null
+	var i: int = _parts_list.get_selected_items()[0]
+	var meta = _parts_list.get_item_metadata(i)
+	return meta as Node3D
+
+
+func _on_unlink_part() -> void:
+	var part := _selected_part_from_list()
+	if part == null:
+		_status.text = "Select a part in Modify."
+		return
+	_assembly.set_part_linked(part, false)
+	_refresh_parts_list()
+	_status.text = "Unlinked - move or delete freely."
+
+
+func _on_relink_part() -> void:
+	var part := _selected_part_from_list()
+	if part == null:
+		_status.text = "Select a part in Modify."
+		return
+	_assembly.set_part_linked(part, true)
+	_refresh_parts_list()
+	_status.text = "Linked - keeps current offset in its group."
+
+
+func _on_delete_part() -> void:
+	var part := _selected_part_from_list()
+	if part == null:
+		_status.text = "Select a part in Modify."
+		return
+	_assembly.remove_part(part)
+	_refresh_parts_list()
+	_update_status()
+	_status.text = "Deleted one part."
+
+
+
+func _on_return_to_origin() -> void:
+	_assembly.return_to_origin()
+	# Desktop only: reframe the orbit camera. In VR, leave the player where they are.
+	if _xr == null or not _xr.xr_active:
+		_camera.frame_aabb(_assembly.world_aabb())
+	_status.text = "Models returned to spawn origin."
+
+
+func _apply_file_list_columns() -> void:
+	if _file_list == null:
+		return
+	if _library_mode:
+		_file_list.set_column_title(0, "Pack")
+		_file_list.set_column_title(1, "Tags")
+		_file_list.set_column_expand(0, true)
+		_file_list.set_column_expand(1, true)
+		_file_list.set_column_clip_content(0, false)
+		_file_list.set_column_clip_content(1, false)
+		# Pack ~40%, Tags ~60% of the list width — no ellipsis trim.
+		var total := 900
+		if _ui_viewport:
+			total = maxi(int(_ui_viewport.size.x) - 80, 700)
+		_file_list.set_column_custom_minimum_width(0, int(total * 0.40))
+		_file_list.set_column_custom_minimum_width(1, int(total * 0.60))
+	else:
+		_file_list.set_column_title(0, "Name")
+		_file_list.set_column_title(1, "Ext")
+		_file_list.set_column_expand(0, true)
+		_file_list.set_column_expand(1, false)
+		_file_list.set_column_clip_content(0, true)
+		_file_list.set_column_custom_minimum_width(1, 64)
+
+
+func _bulk_vr_chrome(root: Control, btn_h: float, font: int, slider_h: float) -> void:
+	if root == null:
+		return
+	for b in root.find_children("*", "Button", true, false):
+		var btn := b as Button
+		# Keep square-ish keys if already wide; otherwise full-width tall buttons.
+		var min_w := maxf(btn.custom_minimum_size.x, btn_h * 0.9)
+		btn.custom_minimum_size = Vector2(min_w, btn_h)
+		btn.add_theme_font_size_override("font_size", font)
+	for c in root.find_children("*", "CheckBox", true, false):
+		(c as CheckBox).custom_minimum_size = Vector2(0, btn_h)
+		(c as CheckBox).add_theme_font_size_override("font_size", font)
+	for s in root.find_children("*", "HSlider", true, false):
+		(s as HSlider).custom_minimum_size = Vector2(0, slider_h)
+	for e in root.find_children("*", "LineEdit", true, false):
+		(e as LineEdit).custom_minimum_size = Vector2(0, btn_h)
+		(e as LineEdit).add_theme_font_size_override("font_size", font)
+	for o in root.find_children("*", "OptionButton", true, false):
+		(o as OptionButton).custom_minimum_size = Vector2(0, btn_h)
+		(o as OptionButton).add_theme_font_size_override("font_size", font)
+	for lab in root.find_children("*", "Label", true, false):
+		(lab as Label).add_theme_font_size_override("font_size", maxi(font - 4, 14))
+	for lst in root.find_children("*", "ItemList", true, false):
+		(lst as ItemList).add_theme_font_size_override("font_size", font)
+		var min_list_h := 200.0 + 40.0 * VR_UI_SCALE
+		(lst as ItemList).custom_minimum_size = Vector2(0, max((lst as ItemList).custom_minimum_size.y, min_list_h))
+	if _file_list:
+		_file_list.add_theme_font_size_override("font_size", font)
 
 
 func _focus_library_filter() -> void:
@@ -858,19 +1348,15 @@ func _focus_library_filter() -> void:
 
 
 func _active_line_edit() -> LineEdit:
+	if _kb_target != null and is_instance_valid(_kb_target):
+		return _kb_target
 	if _tag_filter != null and _tag_filter.visible and _tag_filter.has_focus():
 		return _tag_filter
 	if _folder_edit != null and _folder_edit.editable and _folder_edit.has_focus():
 		return _folder_edit
 	if _scene_name_edit != null and _scene_name_edit.has_focus():
 		return _scene_name_edit
-	# Library filter is the usual target when browsing packs.
-	if _library_mode and _tag_filter != null and _tag_filter.visible:
-		return _tag_filter
-	if _folder_edit != null and _folder_edit.editable and _folder_edit.visible:
-		# Prefer scene name when both available and neither focused.
-		pass
-	return _scene_name_edit
+	return null
 
 
 func _type_into_name(ch: String) -> void:
@@ -879,13 +1365,15 @@ func _type_into_name(ch: String) -> void:
 		return
 	if edit == _folder_edit:
 		_folder_edit.text += ch
+		_folder_edit.caret_column = _folder_edit.text.length()
 		_set_folder(_folder_edit.text)
+		_folder_edit.grab_focus()
 		return
 	edit.text += ch
 	edit.caret_column = edit.text.length()
 	if edit == _tag_filter:
 		_on_tag_filter_changed(edit.text)
-		edit.grab_focus()
+	edit.grab_focus()
 
 
 func _backspace_name() -> void:
@@ -975,24 +1463,17 @@ func _set_view_mode(library: bool) -> void:
 		_library_check.set_pressed_no_signal(library)
 	if _tag_filter:
 		_tag_filter.visible = library
-	if _pack_preview:
-		_pack_preview.visible = library
-	if _pack_meta_label:
-		_pack_meta_label.visible = library
-	if _pack_title:
-		_pack_title.visible = library and _pack_title.text != ""
-	if _options_title:
-		_options_title.visible = library
-	if _options_box:
-		_options_box.visible = library
-		if not library:
-			_clear_options_ui()
-			_selected_pack = null
+	# Pack detail pane opens on selection; do not grow the list column.
+	if not library:
+		_close_pack_detail()
 	if _btn_add_pack:
 		_btn_add_pack.text = "Add pack" if library else "Add pack / files"
 	if _btn_add_all:
 		# Library lists packs, not loose meshes — Add all is a Classic-files tool.
+		# Library selects packs one at a time; Add all is Classic-files only.
 		_btn_add_all.visible = not library
+		if library:
+			_btn_add_all.visible = false
 	if _origin_check:
 		# Library loads decide shared-origin from pack multipart; no per-file pick.
 		_origin_check.visible = not library
@@ -1002,17 +1483,14 @@ func _set_view_mode(library: bool) -> void:
 		if _folder_edit:
 			_folder_edit.text = lib_path
 			_folder_edit.editable = false
-		_file_list.set_column_title(0, "Pack")
-		_file_list.set_column_title(1, "Tags")
 	else:
 		if _folder_edit:
 			_folder_edit.editable = true
-		_file_list.set_column_title(0, "Name")
-		_file_list.set_column_title(1, "Ext")
 		if _pack_preview:
 			_pack_preview.texture = null
 		if _pack_meta_label:
 			_pack_meta_label.text = ""
+	_apply_file_list_columns()
 	_save_settings()
 	_scan_folder()
 
@@ -1020,15 +1498,11 @@ func _set_view_mode(library: bool) -> void:
 func _show_pack_preview(pack: LibraryPack) -> void:
 	_selected_pack = pack
 	_rebuild_options_ui(pack)
-	if _pack_preview == null:
-		return
 	if pack == null:
-		_pack_preview.texture = null
-		if _pack_title:
-			_pack_title.text = ""
-			_pack_title.visible = false
-		if _pack_meta_label:
-			_pack_meta_label.text = ""
+		_close_pack_detail()
+		return
+	_open_pack_detail()
+	if _pack_preview == null:
 		return
 	var tex: Texture2D = null
 	for rel in pack.previews:
@@ -1099,6 +1573,8 @@ func _scan_library() -> void:
 		var item := _file_list.create_item()
 		var title := pack.display_name if pack.display_name != "" else pack.pack_id
 		item.set_text(0, title)
+		item.set_text_overrun_behavior(0, TextServer.OVERRUN_NO_TRIMMING)
+		item.set_text_overrun_behavior(1, TextServer.OVERRUN_NO_TRIMMING)
 		var tag_bits: PackedStringArray = []
 		for t in pack.tags:
 			var s := str(t)
@@ -1113,6 +1589,7 @@ func _scan_library() -> void:
 		elif tag_line.length() > 28:
 			tag_line = tag_line.substr(0, 25) + "..."
 		item.set_text(1, tag_line)
+		item.set_text_overrun_behavior(1, TextServer.OVERRUN_NO_TRIMMING)
 		item.set_metadata(0, {"kind": "pack", "pack_id": pack.pack_id})
 		var ip := str(pack.identity.get("ip", "")) if pack.identity is Dictionary else ""
 		var tip := title
@@ -1372,9 +1849,13 @@ func _load_library_pack(pack: LibraryPack) -> void:
 	if start_n > 0:
 		_assembly.offset_parts_from_index(start_n)
 		_assembly.ground_parts_from_index(start_n)
+	var gname := pack.display_name if pack.display_name != "" else pack.pack_id
+	_assembly.create_link_group_from_index(start_n, gname)
+	_assembly.capture_spawn_poses(start_n)
+	_refresh_parts_list()
 	if not _xr.xr_active:
 		_camera.frame_aabb(_assembly.world_aabb())
-	_status.text = "Added %s - %s" % [pack.display_name if pack.display_name != "" else pack.pack_id, _assembly.last_message]
+	_status.text = "Added %s - %s" % [gname, _assembly.last_message]
 	_update_status()
 
 
@@ -1389,7 +1870,13 @@ func _load_all() -> void:
 func _load_paths(paths: PackedStringArray) -> void:
 	_status.text = "Loading..."
 	await get_tree().process_frame
+	var start_n := _assembly.parts.size()
 	_assembly.load_paths(paths, false)
+	if _assembly.keep_shared_origin and _assembly.parts.size() > start_n:
+		var gname := "Group %s" % _assembly._next_link_id
+		_assembly.create_link_group_from_index(start_n, gname)
+		_assembly.capture_spawn_poses(start_n)
+	_refresh_parts_list()
 	if not _xr.xr_active:
 		_camera.frame_aabb(_assembly.world_aabb())
 	_status.text = _assembly.last_message
@@ -1789,8 +2276,8 @@ func _run_regression() -> int:
 		fails.append("side panel has no children")
 	var names := PackedStringArray()
 	_collect_button_names(_side_panel, names)
-	if not "Add selected" in names:
-		fails.append("Add selected button missing")
+	if not "Add pack / files" in names:
+		fails.append("Add pack / files button missing")
 	if not "Library (model-tags)" in names:
 		fails.append("Library (model-tags) toggle missing")
 	var issa_root := "res://samples"  # optional local dogfood pack path
@@ -1860,8 +2347,8 @@ func _run_regression() -> int:
 		fails.append("UI viewport size collapsed in VR")
 	if _ui_viewport.get_texture() == null:
 		fails.append("UI viewport has no texture")
-	if _wide_row == null or not _wide_row.visible:
-		fails.append("VR two-column layout not shown")
+	if _tabs == null or _tabs.get_tab_count() < 4:
+		fails.append("VR tab dashboard missing tabs")
 	_on_xr_stopped()
 	await get_tree().process_frame
 	if _ui_viewport.size.x > 700:

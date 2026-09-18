@@ -27,32 +27,29 @@ Private artist vaults (e.g. large pack libraries) stay on your machine — see [
 
 ## Run
 
-1. Clone this repo.
-2. Install Godot 4.7 (standard).
-3. Optional: place `Godot_v4.7-stable_win64.exe` next to `project.godot` and double-click `run.bat`, **or** open `project.godot` from the Godot Project Manager and press Play.
-4. Sample meshes live in `samples/` — try **Classic files** → `samples/assembly` → **Add all**.
+This is a **Godot 4.7 project** (source). We do **not** ship the Godot editor binary in git — you bring one of these:
+
+### Option A — Portable exe in the project folder (easiest handoff)
+
+1. Clone / copy this repo.
+2. Download [Godot 4.7 Windows 64-bit](https://godotengine.org/download/windows/) (standard build, **not** .NET).
+3. Put `Godot_v4.7-stable_win64.exe` next to `project.godot` (same folder as `run.bat`).
+4. Double-click **`run.bat`** to launch the **app**. Use `run.bat editor` when you want the Godot editor.
+
+`run.bat` / `./run.sh` prefer that local binary and launch the **app** (main scene). `run.bat editor` / `./run.sh editor` opens the Godot editor for development.
+
+### Option B — Installed Godot
+
+1. Install Godot 4.7 system-wide (or via Scoop/package manager) so `godot` is on `PATH`, **or** install under a normal Godot folder.
+2. Double-click `run.bat` / run `./run.sh`, **or** open `project.godot` from the Godot Project Manager and press Play.
+
+### VR
+
+Start SteamVR first, then Play (or F6).
 
 Logs (if the window flashes and closes): `%APPDATA%\Godot\app_userdata\VR Model Viewer\logs\godot.log`.
 
-### SteamVR / OpenXR
-
-1. Start SteamVR with the headset on.
-2. SteamVR → **Settings → OpenXR** → set **SteamVR** as the OpenXR runtime.
-3. Launch the app → **Enter VR** (or `F1`). **A** shows/hides the dashboard; **Esc** exits VR.
-
-Godot talks to the headset through **OpenXR**, not the legacy OpenVR plugin.
-
-### VR controls (Index / similar)
-
-| Input | Action |
-| --- | --- |
-| **A** (or menu) | Show / hide / recenter dashboard |
-| Trigger on dashboard | Click UI |
-| Stick / trackpad over dashboard | Scroll |
-| Trigger near model | Grab |
-| Both triggers near model | Scale |
-| Left stick (not on board) | Walk |
-| Right stick flick | Snap turn |
+> **Players vs contributors:** contributors run the editor as above. A one-click “game only” build for players is a separate Godot **export** (Windows/Linux pack) we can add later — that is not the same as committing `Godot*.exe` into the repo.
 
 ## Library mode & tagging
 
@@ -114,6 +111,23 @@ Third-party: `addons/gdgs` is MIT (GDGS). Your mesh packs and previews remain **
 ## Status
 
 Active workshop tool. VR dashboard, Library tagging, and pack options are evolving; large private vaults stay out of git by design.
+
+## Troubleshooting
+
+### First open is slow / building cache forever
+
+If `library/` holds a big mesh vault, Godot will try to **import** it unless the folder has a `.gdignore`. This repo includes `library/.gdignore` so the editor skips that vault; Library mode still loads packs at runtime. After pulling, delete `.godot/` once and reopen so old import work is discarded.
+
+### `Could not find type "EnvironmentStage"` (and a cascade of missing class names)
+
+That usually means Godot has not rebuilt its script class cache (the `.godot/` folder is gitignored except for a seed cache). It is **not** caused by adding packs under `library/`.
+
+1. Fully quit Godot.
+2. Delete the project’s `.godot/` folder (keep `project.godot` and `scripts/`).
+3. Open the folder that contains `project.godot` with **Godot 4.7**.
+4. Wait for the import/scan to finish, then run the main scene again.
+
+If it still fails, confirm `scripts/stage/environment_stage.gd` and friends exist after your pull, and that Editor Settings is not treating GDScript warnings as errors.
 
 ## Contributing
 

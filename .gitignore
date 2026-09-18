@@ -1,5 +1,6 @@
 ﻿# --- Godot ---
-.godot/
+.godot/*
+!.godot/global_script_class_cache.cfg
 .nomedia
 .import/
 export.cfg
@@ -19,6 +20,7 @@ godot*.exe
 library/**
 !library/README.md
 !library/.gitkeep
+!library/.gdignore
 
 # --- OS / junk ---
 .DS_Store

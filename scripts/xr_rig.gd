@@ -281,10 +281,13 @@ func _on_grip_start(controller: XRController3D, with_trigger: bool) -> void:
 	var part := assembly.nearest_part(controller.global_position, GRAB_REACH)
 	if part == null:
 		return
+	part = assembly.grab_root_for(part)
 	_haptic(controller)
 	if _grip_left and _grip_right:
 		var other := _right if controller == _left else _left
 		var other_part := assembly.nearest_part(other.global_position, GRAB_REACH)
+		if other_part:
+			other_part = assembly.grab_root_for(other_part)
 		if other_part == part or other_part != null:
 			_grab_part = part
 			_begin_two_hand()
@@ -313,7 +316,8 @@ func _begin_two_hand() -> void:
 	if assembly == null:
 		return
 	if _grab_part == null or not is_instance_valid(_grab_part):
-		_grab_part = assembly.nearest_part((_left.global_position + _right.global_position) * 0.5, GRAB_REACH * 2.0)
+		var p := assembly.nearest_part((_left.global_position + _right.global_position) * 0.5, GRAB_REACH * 2.0)
+		_grab_part = assembly.grab_root_for(p) if p else null
 	if _grab_part == null:
 		return
 	_two_hand = true

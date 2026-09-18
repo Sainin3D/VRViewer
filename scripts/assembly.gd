@@ -14,6 +14,9 @@ const UNIT_SCALE := {
 
 var origin_root: Node3D
 var parts: Array[Node3D] = []
+var link_groups: Dictionary = {}  # gid -> { name, root: Node3D, members: Array }
+var part_link: Dictionary = {}  # part instance_id -> { gid, linked: bool }
+var _next_link_id := 1
 var part_paths: PackedStringArray = []
 var keep_shared_origin := false
 var model_tint := Color(0.92, 0.92, 0.93, 1.0)
@@ -26,6 +29,8 @@ var selected_part: Node3D = null
 var rest_scale := 1.0
 var size_percent := 100.0
 var spawn_transform := Transform3D.IDENTITY
+var spawn_part_xforms: Dictionary = {}  # part instance_id -> global Transform3D at spawn
+var spawn_group_xforms: Dictionary = {}  # gid -> group root global Transform3D at spawn
 
 var _highlight_mat: StandardMaterial3D
 
@@ -52,6 +57,8 @@ func clear() -> void:
 	parts.clear()
 	part_paths.clear()
 	selected_part = null
+	link_groups.clear()
+	part_link.clear()
 	last_triangles = 0
 	file_aabb = AABB()
 	last_message = "Cleared."
@@ -60,6 +67,8 @@ func clear() -> void:
 	rest_scale = 1.0
 	size_percent = 100.0
 	spawn_transform = Transform3D.IDENTITY
+	spawn_part_xforms.clear()
+	spawn_group_xforms.clear()
 	changed.emit()
 
 
@@ -229,7 +238,19 @@ func view_scale() -> float:
 func set_size_percent(percent: float) -> void:
 	size_percent = clampf(percent, 10.0, 400.0)
 	var s := rest_scale * (size_percent / 100.0)
-	scale = Vector3.ONE * maxf(s, 0.0001)
+	var new_s := maxf(s, 0.0001)
+	if parts.is_empty():
+		scale = Vector3.ONE * new_s
+		changed.emit()
+		return
+	# Scale around the current on-floor center so models grow/shrink in place
+	# (scaling the node alone pivots from the assembly origin and slides them).
+	var before := world_aabb()
+	var pivot := Vector3(before.get_center().x, before.position.y, before.get_center().z)
+	scale = Vector3.ONE * new_s
+	var after := world_aabb()
+	var pivot_after := Vector3(after.get_center().x, after.position.y, after.get_center().z)
+	global_position += pivot - pivot_after
 	_snap_to_floor()
 	if parts.size() == 1:
 		SceneStore.set_file_percent(part_paths[0], size_percent)
@@ -237,10 +258,27 @@ func set_size_percent(percent: float) -> void:
 
 
 func return_to_origin() -> void:
+	## Put models back where they spawned after load. Does not move the XR player.
 	var kept := size_percent
 	position = spawn_transform.origin
 	rotation = spawn_transform.basis.get_euler()
-	set_size_percent(kept)
+	size_percent = kept
+	var s := rest_scale * (size_percent / 100.0)
+	scale = Vector3.ONE * maxf(s, 0.0001)
+	# Restore link-group roots first, then each part (grabs move these, not always the assembly).
+	for gid in spawn_group_xforms.keys():
+		if not link_groups.has(gid):
+			continue
+		var root: Node3D = link_groups[gid].get("root")
+		if root and is_instance_valid(root):
+			root.global_transform = spawn_group_xforms[gid]
+	for p in parts:
+		if p == null or not is_instance_valid(p):
+			continue
+		var id := p.get_instance_id()
+		if spawn_part_xforms.has(id):
+			p.global_transform = spawn_part_xforms[id]
+	changed.emit()
 
 
 func set_model_tint(color: Color) -> void:
@@ -273,6 +311,24 @@ func _capture_spawn() -> void:
 	rest_scale = maxf(scale.x, 0.0001)
 	size_percent = 100.0
 	spawn_transform = transform
+	capture_spawn_poses(0)
+
+
+func capture_spawn_poses(from_index: int = 0) -> void:
+	## Remember where parts / link groups sat after load (used by return_to_origin).
+	if from_index <= 0:
+		spawn_part_xforms.clear()
+		spawn_group_xforms.clear()
+		spawn_transform = transform
+	for i in range(maxi(from_index, 0), parts.size()):
+		var p := parts[i]
+		if p and is_instance_valid(p):
+			spawn_part_xforms[p.get_instance_id()] = p.global_transform
+	for gid in link_groups.keys():
+		var g: Dictionary = link_groups[gid]
+		var root: Node3D = g.get("root")
+		if root and is_instance_valid(root):
+			spawn_group_xforms[gid] = root.global_transform
 
 
 func _snap_to_floor() -> void:
@@ -585,3 +641,173 @@ static func _format_int(n: int) -> String:
 		out = s[i] + out
 		count += 1
 	return out
+
+
+func create_link_group(display_name: String, member_parts: Array, linked := true) -> String:
+	## Wrap members under a group root (preserves global transforms). Pack loads use this.
+	var members: Array[Node3D] = []
+	for p in member_parts:
+		if p is Node3D and is_instance_valid(p) and parts.has(p):
+			members.append(p)
+	if members.is_empty():
+		return ""
+	var gid := "g%d" % _next_link_id
+	_next_link_id += 1
+	var root := Node3D.new()
+	root.name = "LinkGroup_%s" % gid
+	origin_root.add_child(root)
+	for part in members:
+		_detach_from_any_group(part)
+		var gt := part.global_transform
+		var parent := part.get_parent()
+		if parent:
+			parent.remove_child(part)
+		root.add_child(part)
+		part.global_transform = gt
+		part_link[part.get_instance_id()] = {"gid": gid, "linked": linked}
+	link_groups[gid] = {"name": display_name, "root": root, "members": members.duplicate()}
+	changed.emit()
+	return gid
+
+
+func _detach_from_any_group(part: Node3D) -> void:
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return
+	var info: Dictionary = part_link[id]
+	var gid := str(info.get("gid", ""))
+	if not link_groups.has(gid):
+		part_link.erase(id)
+		return
+	var g: Dictionary = link_groups[gid]
+	var members: Array = g.get("members", [])
+	members.erase(part)
+	g["members"] = members
+	if members.is_empty():
+		var root: Node3D = g.get("root")
+		if root and is_instance_valid(root) and root.get_child_count() == 0:
+			root.queue_free()
+		link_groups.erase(gid)
+	part_link.erase(id)
+
+
+func set_part_linked(part: Node3D, linked: bool) -> void:
+	if part == null or not is_instance_valid(part):
+		return
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return
+	var info: Dictionary = part_link[id]
+	var gid := str(info.get("gid", ""))
+	if not link_groups.has(gid):
+		return
+	var g: Dictionary = link_groups[gid]
+	var root: Node3D = g.get("root")
+	if root == null or not is_instance_valid(root):
+		return
+	var gt := part.global_transform
+	if linked:
+		# Re-link keeps current pose/offset.
+		if part.get_parent() != root:
+			var parent := part.get_parent()
+			if parent:
+				parent.remove_child(part)
+			root.add_child(part)
+			part.global_transform = gt
+		info["linked"] = true
+	else:
+		# Unlink: keep world pose under origin_root.
+		if part.get_parent() != origin_root:
+			var parent2 := part.get_parent()
+			if parent2:
+				parent2.remove_child(part)
+			origin_root.add_child(part)
+			part.global_transform = gt
+		info["linked"] = false
+	part_link[id] = info
+	changed.emit()
+
+
+func is_part_linked(part: Node3D) -> bool:
+	if part == null:
+		return false
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return false
+	return bool(part_link[id].get("linked", false))
+
+
+func get_part_group_id(part: Node3D) -> String:
+	if part == null:
+		return ""
+	var id := part.get_instance_id()
+	if not part_link.has(id):
+		return ""
+	return str(part_link[id].get("gid", ""))
+
+
+func get_part_group_name(part: Node3D) -> String:
+	var gid := get_part_group_id(part)
+	if gid == "" or not link_groups.has(gid):
+		return ""
+	return str(link_groups[gid].get("name", gid))
+
+
+func grab_root_for(part: Node3D) -> Node3D:
+	## VR grab target: group root if linked, else the part.
+	if part == null or not is_instance_valid(part):
+		return null
+	if not is_part_linked(part):
+		return part
+	var gid := get_part_group_id(part)
+	if gid == "" or not link_groups.has(gid):
+		return part
+	var root: Node3D = link_groups[gid].get("root")
+	if root and is_instance_valid(root):
+		return root
+	return part
+
+
+func remove_part(part: Node3D) -> bool:
+	## Delete one part (not the whole group).
+	if part == null or not is_instance_valid(part):
+		return false
+	var idx := parts.find(part)
+	if idx < 0:
+		return false
+	_detach_from_any_group(part)
+	if selected_part == part:
+		selected_part = null
+	parts.remove_at(idx)
+	if idx < part_paths.size():
+		part_paths.remove_at(idx)
+	part.queue_free()
+	changed.emit()
+	return true
+
+
+func list_part_rows() -> Array:
+	var rows: Array = []
+	for i in range(parts.size()):
+		var part := parts[i]
+		var path := part_paths[i] if i < part_paths.size() else ""
+		rows.append({
+			"part": part,
+			"path": path,
+			"name": path.get_file() if path != "" else part.name,
+			"gid": get_part_group_id(part),
+			"group_name": get_part_group_name(part),
+			"linked": is_part_linked(part),
+		})
+	return rows
+
+
+func create_link_group_from_index(start_index: int, display_name: String) -> String:
+	if start_index < 0 or start_index >= parts.size():
+		return ""
+	var members: Array = []
+	for i in range(start_index, parts.size()):
+		members.append(parts[i])
+	return create_link_group(display_name, members, true)
+
+
