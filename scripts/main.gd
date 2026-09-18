@@ -424,7 +424,6 @@ func _open_pack_detail() -> void:
 func _ensure_popout_keyboard() -> void:
 	if _kb_layer != null:
 		return
-	# Overlay on the UI viewport root (side panel), above tabs.
 	_kb_layer = Control.new()
 	_kb_layer.name = "KeyboardOverlay"
 	_kb_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -432,66 +431,99 @@ func _ensure_popout_keyboard() -> void:
 	_kb_layer.visible = false
 	_side_panel.add_child(_kb_layer)
 	_kb_panel = PanelContainer.new()
-	_kb_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_kb_panel.offset_top = -420
-	_kb_panel.offset_left = 12
-	_kb_panel.offset_right = -12
-	_kb_panel.offset_bottom = -12
 	_kb_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.08, 0.09, 0.12, 0.97)
-	style.border_color = Color(0.35, 0.4, 0.5)
-	style.set_border_width_all(2)
-	style.set_content_margin_all(12)
+	style.bg_color = Color(0.08, 0.09, 0.12, 0.98)
+	style.border_color = Color(0.45, 0.55, 0.7)
+	style.set_border_width_all(3)
+	style.set_content_margin_all(16)
 	_kb_panel.add_theme_stylebox_override("panel", style)
 	_kb_layer.add_child(_kb_panel)
+	_rebuild_popout_keyboard_if_needed()
+
+
+func _rebuild_popout_keyboard_if_needed() -> void:
+	if _kb_panel == null:
+		return
+	# Clear prior chrome.
+	for c in _kb_panel.get_children():
+		_kb_panel.remove_child(c)
+		c.free()
+	var vp_h := 1480
+	var vp_w := 1920
+	if _ui_viewport:
+		vp_h = _ui_viewport.size.y
+		vp_w = _ui_viewport.size.x
+	# Cover most of the board so letter rows are never clipped.
+	_kb_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_kb_panel.anchor_top = 0.28
+	_kb_panel.offset_top = 0
+	_kb_panel.offset_left = 8
+	_kb_panel.offset_right = -8
+	_kb_panel.offset_bottom = -8
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 10)
+	col.add_theme_constant_override("separation", 14)
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_kb_panel.add_child(col)
 	var head := HBoxContainer.new()
 	_kb_title = Label.new()
 	_kb_title.text = "Keyboard"
 	_kb_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_kb_title.add_theme_font_size_override("font_size", 22)
+	_kb_title.add_theme_font_size_override("font_size", 40)
 	head.add_child(_kb_title)
-	head.add_child(_btn("Close", _hide_popout_keyboard))
+	var close_b := Button.new()
+	close_b.text = "Close"
+	close_b.focus_mode = Control.FOCUS_NONE
+	close_b.custom_minimum_size = Vector2(220, 120)
+	close_b.add_theme_font_size_override("font_size", 36)
+	close_b.pressed.connect(_hide_popout_keyboard)
+	head.add_child(close_b)
 	col.add_child(head)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(scroll)
 	var grid := GridContainer.new()
-	grid.columns = 10
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.columns = 7
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_keyboard_grid = grid
+	scroll.add_child(grid)
+	var key_px := 130.0
+	if vp_w > 0:
+		key_px = clampf(float(vp_w) / 9.0, 110.0, 160.0)
 	var keys := "1234567890QWERTYUIOPASDFGHJKLZXCVBNM-,"
 	for i in keys.length():
 		var ch := keys.substr(i, 1)
 		var b := Button.new()
 		b.text = ch
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(72, 72)
-		b.add_theme_font_size_override("font_size", 26)
-		b.pressed.connect(func(): _type_into_name(ch))
+		b.custom_minimum_size = Vector2(key_px, key_px)
+		b.add_theme_font_size_override("font_size", 44)
+		# bind avoids loop-capture bugs so each key types its own character
+		b.pressed.connect(_type_into_name.bind(ch))
 		grid.add_child(b)
-	col.add_child(grid)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	row.add_theme_constant_override("separation", 12)
 	var space := Button.new()
 	space.text = "Space"
 	space.focus_mode = Control.FOCUS_NONE
-	space.custom_minimum_size = Vector2(0, 72)
+	space.custom_minimum_size = Vector2(0, 130)
 	space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	space.add_theme_font_size_override("font_size", 24)
-	space.pressed.connect(func(): _type_into_name(" "))
+	space.add_theme_font_size_override("font_size", 40)
+	space.pressed.connect(_type_into_name.bind(" "))
 	var bk := Button.new()
 	bk.text = "Bksp"
 	bk.focus_mode = Control.FOCUS_NONE
-	bk.custom_minimum_size = Vector2(140, 72)
-	bk.add_theme_font_size_override("font_size", 24)
+	bk.custom_minimum_size = Vector2(240, 130)
+	bk.add_theme_font_size_override("font_size", 40)
 	bk.pressed.connect(_backspace_name)
 	var ent := Button.new()
 	ent.text = "Enter"
 	ent.focus_mode = Control.FOCUS_NONE
-	ent.custom_minimum_size = Vector2(140, 72)
-	ent.add_theme_font_size_override("font_size", 24)
+	ent.custom_minimum_size = Vector2(240, 130)
+	ent.add_theme_font_size_override("font_size", 40)
 	ent.pressed.connect(_on_keyboard_enter)
 	row.add_child(space)
 	row.add_child(bk)
@@ -499,13 +531,14 @@ func _ensure_popout_keyboard() -> void:
 	col.add_child(row)
 
 
+
 func _show_popout_keyboard(edit: LineEdit, title: String = "Keyboard") -> void:
 	if edit == null:
 		return
-	# Desktop physical keyboard is enough.
 	if not _vr_wide:
 		return
 	_ensure_popout_keyboard()
+	_rebuild_popout_keyboard_if_needed()
 	_kb_target = edit
 	if _kb_title:
 		_kb_title.text = title
@@ -1012,11 +1045,11 @@ func _apply_ui_mode(wide: bool) -> void:
 	if _desktop_host:
 		_desktop_host.offset_right = PANEL_WIDTH
 		_desktop_host.visible = not wide
-	var btn_h := 88 if wide else 44
-	var font_vr := 24 if wide else 16
-	# VR: larger file list; keep preview modest so sticky Add pack stays visible.
-	var list_h := 560 if wide else 180
-	var preview_h := 200 if wide else 120
+	# VR hit targets ~3-4x the old 40px desktop chrome.
+	var btn_h := 150 if wide else 44
+	var font_vr := 36 if wide else 16
+	var list_h := 620 if wide else 180
+	var preview_h := 220 if wide else 120
 	if _file_list:
 		_file_list.custom_minimum_size = Vector2(0, list_h)
 		_file_list.add_theme_font_size_override("font_size", font_vr)
@@ -1038,13 +1071,17 @@ func _apply_ui_mode(wide: bool) -> void:
 	_apply_file_list_columns()
 	if wide:
 		# Roughly double Modify / Scene / World hit targets; Files uses the sizes above.
-		_bulk_vr_chrome(_col_modify, 88.0, 24, 56.0)
-		_bulk_vr_chrome(_col_scene, 88.0, 24, 56.0)
-		_bulk_vr_chrome(_col_world, 88.0, 24, 56.0)
+		_bulk_vr_chrome(_col_modify, 150.0, 36, 96.0)
+		_bulk_vr_chrome(_col_scene, 150.0, 36, 96.0)
+		_bulk_vr_chrome(_col_world, 150.0, 36, 96.0)
+		_bulk_vr_chrome(_col_files, 150.0, 36, 96.0)
+		if _pack_detail_pane:
+			_bulk_vr_chrome(_pack_detail_pane, 150.0, 36, 96.0)
 		if _files_load_row:
-			_bulk_vr_chrome(_files_load_row, 88.0, 24, 56.0)
+			_bulk_vr_chrome(_files_load_row, 150.0, 36, 96.0)
 		if _tabs:
-			_tabs.add_theme_font_size_override("font_size", 26)
+			_tabs.add_theme_font_size_override("font_size", 40)
+		_rebuild_popout_keyboard_if_needed()
 	if _btn_recenter_board:
 		_btn_recenter_board.visible = wide
 	# Desktop tabs scroll; VR board is sized to fit so keep scroll off when possible.
@@ -1094,8 +1131,8 @@ func _sep() -> HSeparator:
 func _btn(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(0, 40)
-	b.add_theme_font_size_override("font_size", 16)
+	b.custom_minimum_size = Vector2(0, 150 if _vr_wide else 40)
+	b.add_theme_font_size_override("font_size", 36 if _vr_wide else 16)
 	b.pressed.connect(cb)
 	return b
 
@@ -1227,14 +1264,14 @@ func _apply_file_list_columns() -> void:
 		_file_list.set_column_title(1, "Tags")
 		_file_list.set_column_expand(0, true)
 		_file_list.set_column_expand(1, true)
-		_file_list.set_column_clip_content(0, true)
-		_file_list.set_column_clip_content(1, true)
-		# Tags at least ~half the sheet.
-		var half := 420
+		_file_list.set_column_clip_content(0, false)
+		_file_list.set_column_clip_content(1, false)
+		# Pack ~40%, Tags ~60% of the list width — no ellipsis trim.
+		var total := 900
 		if _ui_viewport:
-			half = maxi(int(float(_ui_viewport.size.x) * 0.48), 320)
-		_file_list.set_column_custom_minimum_width(0, half)
-		_file_list.set_column_custom_minimum_width(1, half)
+			total = maxi(int(_ui_viewport.size.x) - 80, 700)
+		_file_list.set_column_custom_minimum_width(0, int(total * 0.40))
+		_file_list.set_column_custom_minimum_width(1, int(total * 0.60))
 	else:
 		_file_list.set_column_title(0, "Name")
 		_file_list.set_column_title(1, "Ext")
@@ -1248,8 +1285,11 @@ func _bulk_vr_chrome(root: Control, btn_h: float, font: int, slider_h: float) ->
 	if root == null:
 		return
 	for b in root.find_children("*", "Button", true, false):
-		(b as Button).custom_minimum_size = Vector2(0, btn_h)
-		(b as Button).add_theme_font_size_override("font_size", font)
+		var btn := b as Button
+		# Keep square-ish keys if already wide; otherwise full-width tall buttons.
+		var min_w := maxf(btn.custom_minimum_size.x, btn_h * 0.9)
+		btn.custom_minimum_size = Vector2(min_w, btn_h)
+		btn.add_theme_font_size_override("font_size", font)
 	for c in root.find_children("*", "CheckBox", true, false):
 		(c as CheckBox).custom_minimum_size = Vector2(0, btn_h)
 		(c as CheckBox).add_theme_font_size_override("font_size", font)
@@ -1262,10 +1302,12 @@ func _bulk_vr_chrome(root: Control, btn_h: float, font: int, slider_h: float) ->
 		(o as OptionButton).custom_minimum_size = Vector2(0, btn_h)
 		(o as OptionButton).add_theme_font_size_override("font_size", font)
 	for lab in root.find_children("*", "Label", true, false):
-		(lab as Label).add_theme_font_size_override("font_size", max(font - 2, 16))
+		(lab as Label).add_theme_font_size_override("font_size", max(font - 4, 18))
 	for lst in root.find_children("*", "ItemList", true, false):
 		(lst as ItemList).add_theme_font_size_override("font_size", font)
-		(lst as ItemList).custom_minimum_size = Vector2(0, max((lst as ItemList).custom_minimum_size.y, 280.0))
+		(lst as ItemList).custom_minimum_size = Vector2(0, max((lst as ItemList).custom_minimum_size.y, 360.0))
+	if _file_list:
+		_file_list.add_theme_font_size_override("font_size", font)
 
 
 func _focus_library_filter() -> void:
@@ -1398,7 +1440,10 @@ func _set_view_mode(library: bool) -> void:
 		_btn_add_pack.text = "Add pack" if library else "Add pack / files"
 	if _btn_add_all:
 		# Library lists packs, not loose meshes — Add all is a Classic-files tool.
+		# Library selects packs one at a time; Add all is Classic-files only.
 		_btn_add_all.visible = not library
+		if library:
+			_btn_add_all.visible = false
 	if _origin_check:
 		# Library loads decide shared-origin from pack multipart; no per-file pick.
 		_origin_check.visible = not library
@@ -1498,6 +1543,8 @@ func _scan_library() -> void:
 		var item := _file_list.create_item()
 		var title := pack.display_name if pack.display_name != "" else pack.pack_id
 		item.set_text(0, title)
+		item.set_text_overrun_behavior(0, TextServer.OVERRUN_NO_TRIMMING)
+		item.set_text_overrun_behavior(1, TextServer.OVERRUN_NO_TRIMMING)
 		var tag_bits: PackedStringArray = []
 		for t in pack.tags:
 			var s := str(t)
@@ -1512,6 +1559,7 @@ func _scan_library() -> void:
 		elif tag_line.length() > 28:
 			tag_line = tag_line.substr(0, 25) + "..."
 		item.set_text(1, tag_line)
+		item.set_text_overrun_behavior(1, TextServer.OVERRUN_NO_TRIMMING)
 		item.set_metadata(0, {"kind": "pack", "pack_id": pack.pack_id})
 		var ip := str(pack.identity.get("ip", "")) if pack.identity is Dictionary else ""
 		var tip := title
