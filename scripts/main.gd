@@ -2276,11 +2276,11 @@ func _run_regression() -> int:
 		fails.append("side panel has no children")
 	var names := PackedStringArray()
 	_collect_button_names(_side_panel, names)
-	if not "Add selected" in names:
-		fails.append("Add selected button missing")
+	if not "Add pack / files" in names:
+		fails.append("Add pack / files button missing")
 	if not "Library (model-tags)" in names:
 		fails.append("Library (model-tags) toggle missing")
-	var issa_root := "res://samples"
+	var issa_root := "res://samples"  # optional local dogfood pack path
 	if DirAccess.dir_exists_absolute(issa_root):
 		var adapter := ModelTagsLibrary.new()
 		adapter.set_root(issa_root)

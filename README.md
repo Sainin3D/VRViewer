@@ -114,7 +114,6 @@ Active workshop tool. VR dashboard, Library tagging, and pack options are evolvi
 
 ## Troubleshooting
 
-
 ### First open is slow / building cache forever
 
 If `library/` holds a big mesh vault, Godot will try to **import** it unless the folder has a `.gdignore`. This repo includes `library/.gdignore` so the editor skips that vault; Library mode still loads packs at runtime. After pulling, delete `.godot/` once and reopen so old import work is discarded.
@@ -130,3 +129,6 @@ That usually means Godot has not rebuilt its script class cache (the `.godot/` f
 
 If it still fails, confirm `scripts/stage/environment_stage.gd` and friends exist after your pull, and that Editor Settings is not treating GDScript warnings as errors.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). PRs to `main` require approval from @Sainin3D.
