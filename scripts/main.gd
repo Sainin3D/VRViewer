@@ -5,6 +5,15 @@ const PANEL_WIDTH := 720.0
 const UI_DESKTOP := Vector2i(720, 1600)
 const UI_VR := Vector2i(1920, 1480)
 
+# Single knob for VR chrome. 2.0 ≈ double desktop hit targets (usable).
+# Dial toward 1.0 to regress toward desktop sizes without another rewrite.
+# Previous 3–4× attempt (~150px buttons) hid controls / half the keyboard.
+const VR_UI_SCALE := 2.0
+const VR_BTN_BASE := 40.0
+const VR_FONT_BASE := 16.0
+const VR_SLIDER_BASE := 28.0
+const VR_TAB_FONT_MULT := 1.4  # tabs stay chunkier than body buttons
+
 var _world: Node3D
 var _stage: EnvironmentStage
 var _assembly: ModelAssembly
@@ -454,45 +463,50 @@ func _rebuild_popout_keyboard_if_needed() -> void:
 	if _ui_viewport:
 		vp_h = _ui_viewport.size.y
 		vp_w = _ui_viewport.size.x
-	# Cover most of the board so letter rows are never clipped.
+	# Tall overlay; keys sized from VR_UI_SCALE so all letters fit (scroll as backup).
 	_kb_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	_kb_panel.anchor_top = 0.28
+	_kb_panel.anchor_top = 0.18
 	_kb_panel.offset_top = 0
 	_kb_panel.offset_left = 8
 	_kb_panel.offset_right = -8
 	_kb_panel.offset_bottom = -8
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
+	col.add_theme_constant_override("separation", 10)
 	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_kb_panel.add_child(col)
 	var head := HBoxContainer.new()
 	_kb_title = Label.new()
 	_kb_title.text = "Keyboard"
 	_kb_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_kb_title.add_theme_font_size_override("font_size", 40)
+	var kb_font := _vr_font()
+	var kb_btn := int(round(_vr_btn_h()))
+	_kb_title.add_theme_font_size_override("font_size", kb_font + 4)
 	head.add_child(_kb_title)
 	var close_b := Button.new()
 	close_b.text = "Close"
 	close_b.focus_mode = Control.FOCUS_NONE
-	close_b.custom_minimum_size = Vector2(220, 120)
-	close_b.add_theme_font_size_override("font_size", 36)
+	close_b.custom_minimum_size = Vector2(maxi(160, kb_btn * 2), kb_btn)
+	close_b.add_theme_font_size_override("font_size", kb_font)
 	close_b.pressed.connect(_hide_popout_keyboard)
 	head.add_child(close_b)
 	col.add_child(head)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	col.add_child(scroll)
 	var grid := GridContainer.new()
-	grid.columns = 7
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 12)
+	grid.columns = 10
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_keyboard_grid = grid
 	scroll.add_child(grid)
-	var key_px := 130.0
+	# Fit ~10 columns across; clamp so keys stay pointer-friendly but do not erase rows.
+	var key_px := 64.0 * VR_UI_SCALE
 	if vp_w > 0:
-		key_px = clampf(float(vp_w) / 9.0, 110.0, 160.0)
+		key_px = minf(key_px, float(vp_w - 80) / 11.0)
+	key_px = clampf(key_px, 48.0, 96.0)
 	var keys := "1234567890QWERTYUIOPASDFGHJKLZXCVBNM-,"
 	for i in keys.length():
 		var ch := keys.substr(i, 1)
@@ -500,30 +514,30 @@ func _rebuild_popout_keyboard_if_needed() -> void:
 		b.text = ch
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(key_px, key_px)
-		b.add_theme_font_size_override("font_size", 44)
+		b.add_theme_font_size_override("font_size", kb_font)
 		# bind avoids loop-capture bugs so each key types its own character
 		b.pressed.connect(_type_into_name.bind(ch))
 		grid.add_child(b)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 10)
 	var space := Button.new()
 	space.text = "Space"
 	space.focus_mode = Control.FOCUS_NONE
-	space.custom_minimum_size = Vector2(0, 130)
+	space.custom_minimum_size = Vector2(0, kb_btn)
 	space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	space.add_theme_font_size_override("font_size", 40)
+	space.add_theme_font_size_override("font_size", kb_font)
 	space.pressed.connect(_type_into_name.bind(" "))
 	var bk := Button.new()
 	bk.text = "Bksp"
 	bk.focus_mode = Control.FOCUS_NONE
-	bk.custom_minimum_size = Vector2(240, 130)
-	bk.add_theme_font_size_override("font_size", 40)
+	bk.custom_minimum_size = Vector2(maxi(140, kb_btn * 2), kb_btn)
+	bk.add_theme_font_size_override("font_size", kb_font)
 	bk.pressed.connect(_backspace_name)
 	var ent := Button.new()
 	ent.text = "Enter"
 	ent.focus_mode = Control.FOCUS_NONE
-	ent.custom_minimum_size = Vector2(240, 130)
-	ent.add_theme_font_size_override("font_size", 40)
+	ent.custom_minimum_size = Vector2(maxi(140, kb_btn * 2), kb_btn)
+	ent.add_theme_font_size_override("font_size", kb_font)
 	ent.pressed.connect(_on_keyboard_enter)
 	row.add_child(space)
 	row.add_child(bk)
@@ -1034,6 +1048,23 @@ func _notification(what: int) -> void:
 			_fit_desktop_viewport()
 
 
+
+func _vr_btn_h() -> float:
+	return VR_BTN_BASE * VR_UI_SCALE
+
+
+func _vr_font() -> int:
+	return maxi(int(round(VR_FONT_BASE * VR_UI_SCALE)), 14)
+
+
+func _vr_slider_h() -> float:
+	return VR_SLIDER_BASE * VR_UI_SCALE
+
+
+func _vr_tab_font() -> int:
+	return maxi(int(round(VR_FONT_BASE * VR_UI_SCALE * VR_TAB_FONT_MULT)), 18)
+
+
 func _apply_ui_mode(wide: bool) -> void:
 	if _ui_viewport == null or _tabs == null:
 		return
@@ -1045,42 +1076,40 @@ func _apply_ui_mode(wide: bool) -> void:
 	if _desktop_host:
 		_desktop_host.offset_right = PANEL_WIDTH
 		_desktop_host.visible = not wide
-	# VR hit targets ~3-4x the old 40px desktop chrome.
-	var btn_h := 150 if wide else 44
-	var font_vr := 36 if wide else 16
-	var list_h := 620 if wide else 180
-	var preview_h := 220 if wide else 120
+	var btn_h := int(round(_vr_btn_h())) if wide else 44
+	var font_vr := _vr_font() if wide else 16
+	var slider_h := _vr_slider_h() if wide else 36.0
+	# Lists grow gently with scale so chrome does not shove controls off-board.
+	var list_h := int(round(280.0 + 80.0 * VR_UI_SCALE)) if wide else 180
+	var preview_h := int(round(120.0 + 40.0 * VR_UI_SCALE)) if wide else 120
 	if _file_list:
 		_file_list.custom_minimum_size = Vector2(0, list_h)
 		_file_list.add_theme_font_size_override("font_size", font_vr)
 	if _parts_list:
-		_parts_list.custom_minimum_size = Vector2(0, 360 if wide else 200)
+		_parts_list.custom_minimum_size = Vector2(0, int(round(200.0 + 60.0 * VR_UI_SCALE)) if wide else 200)
 		_parts_list.add_theme_font_size_override("font_size", font_vr)
 	if _scene_list:
-		_scene_list.custom_minimum_size = Vector2(0, 320 if wide else 160)
+		_scene_list.custom_minimum_size = Vector2(0, int(round(160.0 + 50.0 * VR_UI_SCALE)) if wide else 160)
 	if _splat_list:
-		_splat_list.custom_minimum_size = Vector2(0, 240 if wide else 140)
+		_splat_list.custom_minimum_size = Vector2(0, int(round(140.0 + 40.0 * VR_UI_SCALE)) if wide else 140)
 	if _pack_preview:
 		_pack_preview.custom_minimum_size = Vector2(0, preview_h)
 	if _tag_filter:
-		_tag_filter.custom_minimum_size = Vector2(0, 56 if wide else 0)
+		_tag_filter.custom_minimum_size = Vector2(0, btn_h if wide else 0)
 		_tag_filter.add_theme_font_size_override("font_size", font_vr)
 	if _btn_add_pack:
 		_btn_add_pack.custom_minimum_size = Vector2(0, btn_h)
 		_btn_add_pack.add_theme_font_size_override("font_size", font_vr)
 	_apply_file_list_columns()
 	if wide:
-		# Roughly double Modify / Scene / World hit targets; Files uses the sizes above.
-		_bulk_vr_chrome(_col_modify, 150.0, 36, 96.0)
-		_bulk_vr_chrome(_col_scene, 150.0, 36, 96.0)
-		_bulk_vr_chrome(_col_world, 150.0, 36, 96.0)
-		_bulk_vr_chrome(_col_files, 150.0, 36, 96.0)
+		_bulk_vr_chrome(_col_modify, float(btn_h), font_vr, slider_h)
+		_bulk_vr_chrome(_col_scene, float(btn_h), font_vr, slider_h)
+		_bulk_vr_chrome(_col_world, float(btn_h), font_vr, slider_h)
+		_bulk_vr_chrome(_col_files, float(btn_h), font_vr, slider_h)
 		if _pack_detail_pane:
-			_bulk_vr_chrome(_pack_detail_pane, 150.0, 36, 96.0)
+			_bulk_vr_chrome(_pack_detail_pane, float(btn_h), font_vr, slider_h)
 		if _files_load_row:
-			_bulk_vr_chrome(_files_load_row, 150.0, 36, 96.0)
-		if _tabs:
-			_tabs.add_theme_font_size_override("font_size", 40)
+			_bulk_vr_chrome(_files_load_row, float(btn_h), font_vr, slider_h)
 		_rebuild_popout_keyboard_if_needed()
 	if _btn_recenter_board:
 		_btn_recenter_board.visible = wide
@@ -1090,9 +1119,8 @@ func _apply_ui_mode(wide: bool) -> void:
 			# Files can stay tight; other tabs may need a little scroll after control upscale.
 			sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	if _files_scroll:
-		_files_scroll.vertical_scroll_mode = (
-			ScrollContainer.SCROLL_MODE_DISABLED if wide else ScrollContainer.SCROLL_MODE_AUTO
-		)
+		# Always allow scroll so oversized chrome never eats controls.
+		_files_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	if _files_load_row:
 		_files_load_row.visible = true
 	_ensure_popout_keyboard()
@@ -1103,7 +1131,8 @@ func _apply_ui_mode(wide: bool) -> void:
 	if _status:
 		_status.add_theme_font_size_override("font_size", 16 if wide else 14)
 	if _tabs:
-		_tabs.add_theme_font_size_override("font_size", 18 if wide else 16)
+		# Applied last so it is not stomped; tabs stay bigger than body buttons in VR.
+		_tabs.add_theme_font_size_override("font_size", _vr_tab_font() if wide else 16)
 	if _xr and _xr.board:
 		_xr.board.use_viewport(_ui_viewport)
 
@@ -1131,8 +1160,8 @@ func _sep() -> HSeparator:
 func _btn(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(0, 150 if _vr_wide else 40)
-	b.add_theme_font_size_override("font_size", 36 if _vr_wide else 16)
+	b.custom_minimum_size = Vector2(0, int(round(_vr_btn_h())) if _vr_wide else 40)
+	b.add_theme_font_size_override("font_size", _vr_font() if _vr_wide else 16)
 	b.pressed.connect(cb)
 	return b
 
@@ -1302,10 +1331,11 @@ func _bulk_vr_chrome(root: Control, btn_h: float, font: int, slider_h: float) ->
 		(o as OptionButton).custom_minimum_size = Vector2(0, btn_h)
 		(o as OptionButton).add_theme_font_size_override("font_size", font)
 	for lab in root.find_children("*", "Label", true, false):
-		(lab as Label).add_theme_font_size_override("font_size", max(font - 4, 18))
+		(lab as Label).add_theme_font_size_override("font_size", maxi(font - 4, 14))
 	for lst in root.find_children("*", "ItemList", true, false):
 		(lst as ItemList).add_theme_font_size_override("font_size", font)
-		(lst as ItemList).custom_minimum_size = Vector2(0, max((lst as ItemList).custom_minimum_size.y, 360.0))
+		var min_list_h := 200.0 + 40.0 * VR_UI_SCALE
+		(lst as ItemList).custom_minimum_size = Vector2(0, max((lst as ItemList).custom_minimum_size.y, min_list_h))
 	if _file_list:
 		_file_list.add_theme_font_size_override("font_size", font)
 
